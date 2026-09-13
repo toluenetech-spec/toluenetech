@@ -1,16 +1,17 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, MessageCircle } from 'lucide-react';
-import { SERVICES } from '../constants';
-import { SectionHeading, ServiceCard } from '../components/UI';
+import { ArrowRight, MessageCircle, Bot } from 'lucide-react';
+import { ServiceCard } from '../components/UI';
 import { GlowButton, Pill } from '../components/Premium';
 import { Reveal, StaggerGroup, StaggerItem } from '../components/motion';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 
 const Services: React.FC = () => {
-  const { socialLinks } = useProjects();
+  const { socialLinks, services } = useData();
   const whatsappMsg = encodeURIComponent("Hello Toluene Tech, I'd like to discuss a project.");
   const whatsappLink = `https://wa.me/${socialLinks.whatsapp}?text=${whatsappMsg}`;
+  const published = services.filter(s => s.isPublished).sort((a,b) => (a.order||0)-(b.order||0));
+  const ai = services.find(s => s.slug === 'ai-integration');
 
   return (
     <div className="pt-12 pb-24 bg-slate-50 dark:bg-slate-950 min-h-screen">
@@ -27,7 +28,7 @@ const Services: React.FC = () => {
         </Reveal>
 
         <StaggerGroup className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-          {SERVICES.map((service) => (
+          {published.map((service) => (
             <StaggerItem key={service.id}>
               <ServiceCard service={service} />
             </StaggerItem>

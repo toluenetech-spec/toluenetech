@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { SectionHeading } from '../components/UI';
 import { CheckCircle2, Users, Target, Rocket, User } from 'lucide-react';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 
 const About: React.FC = () => {
-  const { founderImageData, founderNote } = useProjects();
+  const { founderImageData, founderNote } = useData();
   const [imgError, setImgError] = useState(false);
 
   // Use the uploaded data if available, otherwise try the local default file, otherwise fallback to placeholder

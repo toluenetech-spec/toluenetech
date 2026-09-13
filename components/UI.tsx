@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { Project, Service, CATEGORY_DISPLAY } from '../types';
 import { Reveal, TiltCard } from './motion';
 import { Pill } from './Premium';
+import { resolveIcon } from '../lib/icons';
 
 // Section Heading
 export const SectionHeading: React.FC<{ title: string; subtitle?: string; align?: 'left' | 'center' }> = ({ title, subtitle, align = 'center' }) => (
@@ -78,32 +79,33 @@ export const ProjectCard: React.FC<{ project: Project }> = ({ project }) => (
 );
 
 // Service Card
-export const ServiceCard: React.FC<{ service: Service }> = ({ service }) => {
-  const Icon = service.icon;
+export const ServiceCard: React.FC<{ service: Service; slug?: string; compact?: boolean }> = ({ service, slug, compact = false }) => {
+  const Icon = typeof service.icon === 'string' ? resolveIcon(service.icon) : service.icon;
+  const link = slug || `/services/${service.slug}`;
+  const items = (service.capabilities && service.capabilities.length ? service.capabilities : service.includes || []).slice(0, compact ? 3 : 4);
   return (
     <TiltCard className="h-full" max={6}>
-      <div className="tt-glass tt-glow-border group relative flex h-full flex-col overflow-hidden rounded-3xl p-8 transition-all duration-500 hover:shadow-card">
+      <Link to={link} className="tt-glass tt-glow-border group relative flex h-full flex-col overflow-hidden rounded-3xl p-8 transition-all duration-500 hover:shadow-card">
         <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-brand-500/10 blur-3xl transition-opacity duration-500 group-hover:bg-brand-500/25" />
         <div className="relative mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-500/20 to-brand-400/5 ring-1 ring-brand-400/20 transition-all duration-500 group-hover:from-brand-500 group-hover:to-brand-400 group-hover:shadow-glow">
           <Icon className="h-7 w-7 text-brand-500 transition-colors duration-500 group-hover:text-white" />
         </div>
         <h3 className="mb-3 font-display text-xl font-bold text-slate-900 dark:text-white">{service.title}</h3>
         <p className="mb-6 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{service.description}</p>
-        <ul className="mb-6 space-y-2.5">
-          {service.includes.map((item, i) => (
-            <li key={i} className="flex items-start gap-2.5 text-sm text-slate-500 dark:text-slate-300">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
-              {item}
-            </li>
-          ))}
-        </ul>
-        <Link
-          to="/contact"
-          className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-brand-600 transition-all hover:gap-3 dark:text-brand-300"
-        >
-          Request Quote <ArrowRight className="h-4 w-4" />
-        </Link>
-      </div>
+        {!compact && items.length > 0 && (
+          <ul className="mb-6 space-y-2.5">
+            {items.slice(0, 4).map((item, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-sm text-slate-500 dark:text-slate-300">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        )}
+        <span className="mt-auto inline-flex items-center gap-2 text-sm font-semibold text-brand-600 transition-all group-hover:gap-3 dark:text-brand-300">
+          Learn more <ArrowRight className="h-4 w-4" />
+        </span>
+      </Link>
     </TiltCard>
   );
 };

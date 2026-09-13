@@ -1,12 +1,12 @@
 import React, { useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 import { ArrowLeft, ExternalLink, Github, Wrench, CheckCircle, ArrowRight, Calendar, User } from 'lucide-react';
 import { CATEGORY_DISPLAY } from '../types';
 
 const ProjectDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { getProject } = useProjects();
+  const { getProject } = useData();
   const navigate = useNavigate();
   const project = id ? getProject(id) : undefined;
 

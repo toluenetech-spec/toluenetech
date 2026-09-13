@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { FileText, Download, Briefcase, AlertTriangle, MessageCircle, X } from 'lucide-react';
 import { SectionHeading } from '../components/UI';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 
 const Downloads: React.FC = () => {
-  const { brandProfileData, portfolioHighlightData, pricingGuideData, socialLinks } = useProjects();
+  const { brandProfileData, portfolioHighlightData, pricingGuideData, socialLinks } = useData();
   const [errorModalOpen, setErrorModalOpen] = useState(false);
   const [missingFileName, setMissingFileName] = useState("");
 

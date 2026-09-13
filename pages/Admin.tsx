@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 import { Project, ProjectCategory, CATEGORY_ORDER, CATEGORY_DISPLAY } from '../types';
 import { AI_TECH_SUGGESTIONS } from '../constants';
-import { Trash2, Edit2, Plus, LogOut, Save, X, Upload, Image as ImageIcon, FileText, Briefcase, User, MessageCircle, AlertCircle, CheckCircle, Bell, Link as LinkIcon, AlertTriangle, Share2, Cloud, ExternalLink, Github } from 'lucide-react';
+import { Trash2, Edit2, Plus, LogOut, Save, X, Upload, Image as ImageIcon, FileText, Briefcase, User, MessageCircle, AlertCircle, CheckCircle, Bell, Link as LinkIcon, AlertTriangle, Share2, Cloud, ExternalLink, Github, Inbox, Users } from 'lucide-react';
 
 const Admin: React.FC = () => {
   const { isAuthenticated, login, logout } = useAuth();
@@ -14,9 +15,12 @@ const Admin: React.FC = () => {
     updateFounderImage, founderNote, updateFounderNote,
     siteNotification, updateSiteNotification,
     socialLinks, updateSocialLinks,
+    leads, updateLead, deleteLead,
     isLoading
-  } = useProjects();
-  
+  } = useData();
+
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview'|'projects'|'leads'|'content'|'settings'|'portal'>('overview');
+
   const [password, setPassword] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -280,9 +284,9 @@ const Admin: React.FC = () => {
             </div>
         )}
 
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
           <div className="flex items-center gap-3">
-             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Cloud Dashboard</h1>
+             <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Control Center</h1>
              <span className="bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded border border-green-200 flex items-center gap-1">
                  <Cloud className="h-3 w-3" /> Online
              </span>
@@ -291,6 +295,47 @@ const Admin: React.FC = () => {
             <LogOut className="h-4 w-4" /> Logout
           </button>
         </div>
+
+        {/* Tab nav */}
+        <div className="flex flex-wrap gap-2 mb-8 border-b border-slate-200 dark:border-slate-700">
+          {(['overview','projects','leads','content','settings','portal'] as const).map(t => (
+            <button key={t} onClick={() => setActiveAdminTab(t)}
+              className={`px-4 py-2 text-sm font-semibold capitalize border-b-2 -mb-px transition ${activeAdminTab===t ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'}`}>
+              {t === 'portal' ? 'Client Portal' : t}
+            </button>
+          ))}
+        </div>
+
+        {activeAdminTab === 'overview' && (
+          <div className="grid md:grid-cols-3 gap-4 mb-10">
+            <OverviewCard icon={<Briefcase className="h-5 w-5"/>} label="Projects" value={projects.length} sub={`${projects.filter(p=>p.isPublished).length} published`} />
+            <OverviewCard icon={<Inbox className="h-5 w-5"/>} label="New Leads" value={leads.filter(l=>l.status==='new').length} sub={`${leads.length} total`} />
+            <OverviewCard icon={<Users className="h-5 w-5"/>} label="Media Assets" value={mediaLibrary.length} sub="Files in library" />
+          </div>
+        )}
+
+        {activeAdminTab === 'leads' && (
+          <LeadsPanel leads={leads} onStatus={(id,status)=>updateLead(id,{status})} onDelete={deleteLead} onNote={(id,notes)=>updateLead(id,{notes})} />
+        )}
+
+        {activeAdminTab === 'portal' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-8">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Client Portal</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm mb-4">Clients log in at <Link to="/portal" className="text-blue-600 underline">/portal</Link>. Create clients, projects, milestones, files and messages from the Client Portal manager.</p>
+            <div className="grid md:grid-cols-2 gap-4 text-sm">
+              <div className="p-4 border rounded bg-slate-50 dark:bg-slate-900/50"><strong>Clients</strong><p className="text-slate-500 mt-1">Create clients with auto-generated access codes for secure portal access.</p></div>
+              <div className="p-4 border rounded bg-slate-50 dark:bg-slate-900/50"><strong>Projects & Milestones</strong><p className="text-slate-500 mt-1">Track progress, milestones, files and messages per client project.</p></div>
+            </div>
+            <p className="text-xs text-slate-500 mt-4">Full CMS for clients, projects, milestones, files and messages is rolling out in the next wave.</p>
+          </div>
+        )}
+
+        {activeAdminTab === 'content' && (
+          <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-8">
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Content</h2>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">Services, portfolio, testimonials, FAQs, products, lab items and insights are managed here. Portfolio management is below in the Projects panel.</p>
+          </div>
+        )}
 
         {/* Social Media & Contact Links */}
         <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 mb-8">
@@ -959,8 +1004,102 @@ const Admin: React.FC = () => {
           </div>
         )}
       </div>
+      </div>
+  );
+};
+
+// --- Small sub-components for the new admin sections ---
+const OverviewCard: React.FC<{icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string}> = ({icon,label,value,sub}) => (
+  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+    <div className="flex items-center gap-3 text-slate-500 mb-2">{icon}<span className="text-sm font-medium uppercase tracking-wide">{label}</span></div>
+    <div className="text-3xl font-bold text-slate-900 dark:text-white">{value}</div>
+    {sub && <div className="text-xs text-slate-500 mt-1">{sub}</div>}
+  </div>
+);
+
+const LEAD_STATUS_STYLES: Record<string,string> = {
+  new:'bg-blue-100 text-blue-700', contacted:'bg-cyan-100 text-cyan-700', qualified:'bg-indigo-100 text-indigo-700',
+  discovery:'bg-amber-100 text-amber-700', proposal:'bg-orange-100 text-orange-700', negotiation:'bg-purple-100 text-purple-700',
+  won:'bg-green-100 text-green-700', lost:'bg-slate-200 text-slate-700',
+};
+const LEAD_STATUSES = ['new','contacted','qualified','discovery','proposal','negotiation','won','lost'] as const;
+
+const LeadsPanel: React.FC<{
+  leads: any[];
+  onStatus: (id:string,status:any)=>Promise<void>;
+  onDelete: (id:string)=>Promise<void>;
+  onNote: (id:string,note:string)=>Promise<void>;
+}> = ({leads,onStatus,onDelete,onNote}) => {
+  const [noteFor, setNoteFor] = useState<string|null>(null);
+  const [noteText, setNoteText] = useState('');
+  const [filter, setFilter] = useState<string>('all');
+  const [expanded, setExpanded] = useState<string|null>(null);
+  const sorted = [...leads].sort((a:any,b:any)=> (b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  const visible = filter==='all' ? sorted : sorted.filter((l:any)=>l.status===filter);
+  return (
+    <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 mb-8">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><Inbox className="h-5 w-5"/> Leads / CRM</h2>
+        <div className="flex flex-wrap gap-1">
+          <button onClick={()=>setFilter('all')} className={`px-2 py-1 text-xs rounded ${filter==='all'?'bg-slate-900 text-white':'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>All ({sorted.length})</button>
+          {LEAD_STATUSES.map(s => (
+            <button key={s} onClick={()=>setFilter(s)} className={`px-2 py-1 text-xs rounded capitalize ${filter===s?'bg-slate-900 text-white':'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200'}`}>{s} ({sorted.filter((l:any)=>l.status===s).length})</button>
+          ))}
+        </div>
+      </div>
+      {visible.length === 0 && <p className="text-slate-500 text-sm py-8 text-center">No leads yet. New submissions from Start a Project and the AI Estimator will appear here.</p>}
+      <div className="space-y-2">
+        {visible.map((lead:any) => (
+          <div key={lead.id} className="border border-slate-200 dark:border-slate-700 rounded-lg">
+            <button onClick={()=>setExpanded(expanded===lead.id?null:lead.id)} className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 dark:hover:bg-slate-900/40">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-900 dark:text-white">{lead.name}</span>
+                  <span className="text-xs text-slate-500 font-mono">{lead.reference}</span>
+                  <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${LEAD_STATUS_STYLES[lead.status]||'bg-slate-100 text-slate-700'}`}>{lead.status}</span>
+                  <span className="text-[10px] text-slate-500 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">{lead.source}</span>
+                </div>
+                <div className="text-sm text-slate-500 mt-1 truncate">{lead.email}{lead.phone?` • ${lead.phone}`:''}{lead.company?` • ${lead.company}`:''}</div>
+              </div>
+              <div className="text-xs text-slate-400 ml-3">{lead.createdAt?.toDate?.()?.toLocaleDateString?.() || ''}</div>
+            </button>
+            {expanded===lead.id && (
+              <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/30 space-y-3 text-sm">
+                <QuickRow label="Project">{(lead.projectType||lead.services||[]).join(', ') || '—'}</QuickRow>
+                {lead.budget && <QuickRow label="Budget">{lead.budget}</QuickRow>}
+                {lead.timeline && <QuickRow label="Timeline">{lead.timeline}</QuickRow>}
+                {lead.requirements && <QuickRow label="Requirements" multi>{lead.requirements}</QuickRow>}
+                {lead.features?.length && <QuickRow label="Features">{lead.features.join(', ')}</QuickRow>}
+                {Object.keys(lead.aiDetails||{}).length>0 && <QuickRow label="AI details" multi>{Object.entries(lead.aiDetails).map(([k,v])=>`${k}: ${v}`).join(' | ')}</QuickRow>}
+                {lead.notes && <QuickRow label="Notes" multi>{lead.notes}</QuickRow>}
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  {LEAD_STATUSES.map(s => (
+                    <button key={s} onClick={()=>onStatus(lead.id,s)} className={`px-2 py-1 text-xs rounded capitalize border ${lead.status===s?'bg-slate-900 text-white border-slate-900':'border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>{s}</button>
+                  ))}
+                  <button onClick={()=>{ setNoteFor(lead.id); setNoteText(lead.notes||''); }} className="px-2 py-1 text-xs rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700">Add note</button>
+                  <a href={`mailto:${lead.email}`} className="px-2 py-1 text-xs rounded bg-blue-600 text-white hover:bg-blue-700">Email</a>
+                  {lead.phone && <a href={`https://wa.me/${String(lead.phone).replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="px-2 py-1 text-xs rounded bg-green-600 text-white hover:bg-green-700">WhatsApp</a>}
+                  <button onClick={()=>{ if(confirm('Delete this lead?')) onDelete(lead.id); }} className="ml-auto px-2 py-1 text-xs rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20">Delete</button>
+                </div>
+                {noteFor===lead.id && (
+                  <div className="flex gap-2 pt-2">
+                    <textarea value={noteText} onChange={e=>setNoteText(e.target.value)} className="flex-1 text-sm p-2 border rounded dark:bg-slate-900 dark:border-slate-700" rows={3} placeholder="Internal note..."/>
+                    <div className="flex flex-col gap-1">
+                      <button onClick={async()=>{ await onNote(lead.id,noteText); setNoteFor(null); setNoteText(''); }} className="px-3 py-1 text-sm bg-blue-600 text-white rounded">Save</button>
+                      <button onClick={()=>{ setNoteFor(null); setNoteText(''); }} className="px-3 py-1 text-sm text-slate-500">Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
+const QuickRow: React.FC<{label:string; children:React.ReactNode; multi?:boolean}> = ({label,children,multi}) => (
+  <div><span className="text-xs uppercase text-slate-500 font-semibold mr-2">{label}</span><span className={`text-slate-800 dark:text-slate-200 ${multi?'block mt-1 whitespace-pre-wrap':''}`}>{children}</span></div>
+);
 
 export default Admin;

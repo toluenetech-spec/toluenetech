@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence, useScroll } from 'framer-motion';
-import { Menu, X, Linkedin, Twitter, Instagram, Facebook, Mail, MessageCircle, Sun, Moon, Bell, ArrowUpRight } from 'lucide-react';
+import { Menu, X, Linkedin, Twitter, Instagram, Facebook, Mail, MessageCircle, Sun, Moon, Bell, ArrowUpRight, BrainCircuit } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 
 // Custom TT Logo Component
 const Logo: React.FC<{ className?: string }> = ({ className = 'h-8 w-auto' }) => (
@@ -41,7 +41,7 @@ const CursorGlow: React.FC = () => {
 };
 
 const NotificationBanner: React.FC = () => {
-  const { siteNotification } = useProjects();
+  const { siteNotification } = useData();
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -85,7 +85,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const { theme, toggleTheme } = useTheme();
-  const { socialLinks } = useProjects();
+  const { socialLinks } = useData();
   const location = useLocation();
   const { scrollYProgress } = useScroll();
 
@@ -102,10 +102,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   const navLinks = [
     { name: 'Home', path: '/' },
-    { name: 'About', path: '/about' },
     { name: 'Services', path: '/services' },
-    { name: 'Portfolio', path: '/portfolio' },
-    { name: 'Downloads', path: '/downloads' },
+    { name: 'Solutions', path: '/solutions' },
+    { name: 'Work', path: '/portfolio' },
+    { name: 'Process', path: '/process' },
+    { name: 'AI Lab', path: '/ai-lab' },
     { name: 'Contact', path: '/contact' },
   ];
 
@@ -176,10 +177,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </button>
 
               <Link
-                to="/contact"
+                to="/start-project"
                 className="group ml-1 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-400 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition-all hover:shadow-glow-lg"
               >
-                Get a Quote <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                Start Project <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </Link>
             </nav>
 
@@ -219,11 +220,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                     </Link>
                   ))}
                   <Link
-                    to="/contact"
+                    to="/start-project"
                     onClick={() => setIsMenuOpen(false)}
                     className="mt-2 rounded-xl bg-gradient-to-r from-brand-600 to-brand-400 py-3 text-center font-semibold text-white"
                   >
-                    Get a Quote
+                    Start a Project
                   </Link>
                 </div>
               </div>
@@ -255,43 +256,34 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       <footer className="relative z-10 mt-24 overflow-hidden border-t border-slate-200 bg-slate-50 dark:border-white/5 dark:bg-ink-900">
         <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-[40rem] -translate-x-1/2 rounded-full bg-brand-500/10 blur-3xl" />
         <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          {/* Newsletter */}
-          <div className="tt-glass mb-16 flex flex-col items-center gap-6 rounded-3xl p-8 text-center md:flex-row md:justify-between md:text-left">
+          {/* CTA */}
+          <div className="tt-glass mb-16 grid gap-6 rounded-3xl p-8 md:grid-cols-[1fr_auto] md:items-center">
             <div>
-              <h3 className="font-display text-2xl font-bold text-slate-900 dark:text-white">Stay in the loop</h3>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">Design insights and project updates. No spam, ever.</p>
+              <h3 className="font-display text-2xl font-bold text-slate-900 dark:text-white">Have an idea? Start a project.</h3>
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+                Tell us what you're building — from websites and apps to AI-powered products. We reply within 2 hours.
+              </p>
             </div>
-            <form onSubmit={e => e.preventDefault()} className="flex w-full max-w-md gap-2">
-              <input
-                type="email"
-                required
-                placeholder="you@company.com"
-                className="w-full rounded-full border border-slate-300 bg-white/80 px-5 py-3 text-sm text-slate-900 outline-none transition-all focus:border-brand-400 focus:ring-2 focus:ring-brand-500/30 dark:border-white/10 dark:bg-white/5 dark:text-white"
-              />
-              <button className="shrink-0 rounded-full bg-gradient-to-r from-brand-600 to-brand-400 px-6 py-3 text-sm font-semibold text-white shadow-glow transition-all hover:shadow-glow-lg">
-                Subscribe
-              </button>
-            </form>
+            <div className="flex gap-3">
+              <Link to="/start-project" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-600 to-brand-400 px-6 py-3 text-sm font-semibold text-white shadow-glow transition-all hover:shadow-glow-lg">
+                Start a Project <ArrowUpRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-10 md:grid-cols-4">
-            <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-10 md:grid-cols-6">
+            <div className="col-span-2 space-y-4">
               <div className="flex items-center gap-2 text-white">
                 <Logo className="h-8 w-auto" />
-                <span className="font-display text-lg font-bold text-slate-900 dark:text-white">TolueneTech</span>
+                <span className="font-display text-lg font-bold text-slate-900 dark:text-white">Toluene<span className="tt-gradient-text">Tech</span></span>
               </div>
               <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-                Designing intelligent digital experiences — from websites and apps to AI integration, automation, and premium design.
+                Digital products, design, development, AI and automation — built for ambitious businesses.
               </p>
               <div className="flex gap-3 pt-2">
                 {socialList.map(({ key, href, Icon }) => (
-                  <a
-                    key={key}
-                    href={href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-full bg-slate-200/60 p-2.5 text-slate-500 transition-all hover:-translate-y-1 hover:bg-brand-500 hover:text-white dark:bg-white/5 dark:text-slate-400"
-                  >
+                  <a key={key} href={href} target="_blank" rel="noopener noreferrer"
+                    className="rounded-full bg-slate-200/60 p-2.5 text-slate-500 transition-all hover:-translate-y-1 hover:bg-brand-500 hover:text-white dark:bg-white/5 dark:text-slate-400">
                     <Icon className="h-4 w-4" />
                   </a>
                 ))}
@@ -299,49 +291,61 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
 
             <div>
+              <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Explore</h3>
+              <ul className="space-y-2.5 text-sm text-slate-500 dark:text-slate-400">
+                <li><Link to="/" className="hover:text-brand-500">Home</Link></li>
+                <li><Link to="/services" className="hover:text-brand-500">Services</Link></li>
+                <li><Link to="/solutions" className="hover:text-brand-500">Solutions</Link></li>
+                <li><Link to="/portfolio" className="hover:text-brand-500">Work</Link></li>
+                <li><Link to="/ai-lab" className="inline-flex items-center gap-1 hover:text-brand-500">AI Lab <BrainCircuit className="h-3 w-3" /></Link></li>
+                <li><Link to="/products" className="hover:text-brand-500">Products</Link></li>
+                <li><Link to="/insights" className="hover:text-brand-500">Insights</Link></li>
+              </ul>
+            </div>
+
+            <div>
               <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Services</h3>
               <ul className="space-y-2.5 text-sm text-slate-500 dark:text-slate-400">
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">Web Design</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">Frontend Development</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">UI/UX Design</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">App Development</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">AI Integration &amp; Automation</Link></li>
+                <li><Link to="/services/web-design" className="hover:text-brand-500">Web</Link></li>
+                <li><Link to="/services/app-development" className="hover:text-brand-500">Apps</Link></li>
+                <li><Link to="/services/ui-ux-design" className="hover:text-brand-500">UI/UX</Link></li>
+                <li><Link to="/services/graphic-design" className="hover:text-brand-500">Design</Link></li>
+                <li><Link to="/services/video-editing" className="hover:text-brand-500">Video</Link></li>
+                <li><Link to="/services/ai-integration" className="hover:text-brand-500">AI &amp; Automation</Link></li>
               </ul>
             </div>
 
             <div>
-              <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Brand</h3>
+              <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Company</h3>
               <ul className="space-y-2.5 text-sm text-slate-500 dark:text-slate-400">
-                <li><Link to="/about" className="transition-colors hover:text-brand-500">About Us</Link></li>
-                <li><Link to="/portfolio" className="transition-colors hover:text-brand-500">Portfolio</Link></li>
-                <li><Link to="/downloads" className="transition-colors hover:text-brand-500">Downloads</Link></li>
-                <li><Link to="/admin" className="transition-colors hover:text-brand-500">Client/Admin Login</Link></li>
+                <li><Link to="/about" className="hover:text-brand-500">About</Link></li>
+                <li><Link to="/process" className="hover:text-brand-500">Process</Link></li>
+                <li><Link to="/technology" className="hover:text-brand-500">Technology</Link></li>
+                <li><Link to="/pricing" className="hover:text-brand-500">Pricing</Link></li>
+                <li><Link to="/testimonials" className="hover:text-brand-500">Testimonials</Link></li>
+                <li><Link to="/faq" className="hover:text-brand-500">FAQ</Link></li>
+                <li><Link to="/estimate" className="hover:text-brand-500">Estimate</Link></li>
               </ul>
             </div>
 
             <div>
-              <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Connect</h3>
+              <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Contact</h3>
               <ul className="space-y-3 text-sm text-slate-500 dark:text-slate-400">
-                <li className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-brand-500" />
-                  <a href={`mailto:${socialLinks.email}`} className="hover:text-brand-500">{socialLinks.email}</a>
-                </li>
-                <li className="flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4 text-brand-500" />
-                  <a href={whatsappFooterLink} target="_blank" rel="noreferrer" className="hover:text-brand-500">+{socialLinks.whatsapp}</a>
-                </li>
-                <li className="pt-2">
-                  <Link to="/downloads" className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-brand-500 hover:text-brand-400">
-                    Download Brand CV <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                </li>
+                <li className="flex items-center gap-2"><Mail className="h-4 w-4 text-brand-500" /><a href={`mailto:${socialLinks.email}`} className="hover:text-brand-500">{socialLinks.email}</a></li>
+                <li className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-brand-500" /><a href={whatsappFooterLink} target="_blank" rel="noreferrer" className="hover:text-brand-500">+{socialLinks.whatsapp}</a></li>
+                <li><Link to="/portal" className="text-xs font-bold uppercase tracking-wider text-brand-500 hover:text-brand-400">Client Portal</Link></li>
+                <li><Link to="/admin" className="text-xs font-bold uppercase tracking-wider text-brand-500 hover:text-brand-400">Admin</Link></li>
               </ul>
             </div>
           </div>
 
           <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-slate-200 pt-8 text-sm text-slate-500 dark:border-white/5 sm:flex-row">
             <span>&copy; {new Date().getFullYear()} Toluene Tech. All rights reserved.</span>
-            <span className="text-xs">Web • Apps • AI • Design.</span>
+            <div className="flex items-center gap-4 text-xs">
+              <Link to="/contact" className="hover:text-brand-500">Contact</Link>
+              <Link to="/faq" className="hover:text-brand-500">FAQ</Link>
+              <span className="text-brand-500/70">Web • Apps • AI • Design</span>
+            </div>
           </div>
         </div>
       </footer>

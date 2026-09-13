@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Mail, Phone, MapPin, Send, MessageCircle, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react';
 import { SectionHeading } from '../components/UI';
-import { useProjects } from '../context/ProjectContext';
+import { useData } from '../context/DataContext';
 import { SERVICE_OPTIONS, ServiceOption } from '../types';
 
 const AI_FOLLOW_UPS: { key: string; label: string; placeholder?: string }[] = [
@@ -20,7 +20,7 @@ const Contact: React.FC = () => {
   const [searchParams] = useSearchParams();
   const initialService = (searchParams.get('service') as ServiceOption) || '';
 
-  const { socialLinks } = useProjects();
+  const { socialLinks } = useData();
   const [submitted, setSubmitted] = useState(false);
 
   const [formState, setFormState] = useState({
