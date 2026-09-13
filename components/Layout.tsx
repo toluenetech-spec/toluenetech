@@ -281,7 +281,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <span className="font-display text-lg font-bold text-slate-900 dark:text-white">TolueneTech</span>
               </div>
               <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
-                Designing intelligent digital experiences — AI engineering, full-stack development, and premium web design.
+                Designing intelligent digital experiences — from websites and apps to AI integration, automation, and premium design.
               </p>
               <div className="flex gap-3 pt-2">
                 {socialList.map(({ key, href, Icon }) => (
@@ -302,9 +302,10 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               <h3 className="mb-4 font-semibold text-slate-900 dark:text-white">Services</h3>
               <ul className="space-y-2.5 text-sm text-slate-500 dark:text-slate-400">
                 <li><Link to="/services" className="transition-colors hover:text-brand-500">Web Design</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">Frontend Dev</Link></li>
+                <li><Link to="/services" className="transition-colors hover:text-brand-500">Frontend Development</Link></li>
                 <li><Link to="/services" className="transition-colors hover:text-brand-500">UI/UX Design</Link></li>
-                <li><Link to="/services" className="transition-colors hover:text-brand-500">Motion Graphics</Link></li>
+                <li><Link to="/services" className="transition-colors hover:text-brand-500">App Development</Link></li>
+                <li><Link to="/services" className="transition-colors hover:text-brand-500">AI Integration &amp; Automation</Link></li>
               </ul>
             </div>
 
@@ -340,7 +341,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
           <div className="mt-14 flex flex-col items-center justify-between gap-4 border-t border-slate-200 pt-8 text-sm text-slate-500 dark:border-white/5 sm:flex-row">
             <span>&copy; {new Date().getFullYear()} Toluene Tech. All rights reserved.</span>
-            <span className="text-xs">Designing Intelligent Digital Experiences.</span>
+            <span className="text-xs">Web • Apps • AI • Design.</span>
           </div>
         </div>
       </footer>

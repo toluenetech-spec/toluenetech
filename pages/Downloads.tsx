@@ -11,7 +11,7 @@ const Downloads: React.FC = () => {
   const documents = [
     {
       title: 'Brand CV',
-      description: 'A complete overview of Toluene Tech, our services, and value proposition.',
+      description: 'A complete overview of Toluene Tech — web, apps, design, video and AI services.',
       size: brandProfileData ? 'Updated' : '2.4 MB',
       type: 'PDF',
       icon: Briefcase,
@@ -20,7 +20,7 @@ const Downloads: React.FC = () => {
     },
     {
       title: 'Portfolio Highlights',
-      description: 'Curated selection of our best work in web design and motion graphics.',
+      description: 'Curated selection of our best work across web, apps, design, video and AI projects.',
       size: portfolioHighlightData ? 'Updated' : '12.8 MB',
       type: 'PDF',
       icon: FileText,

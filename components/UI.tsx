@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, CheckCircle2 } from 'lucide-react';
-import { Project, Service } from '../types';
+import { Project, Service, CATEGORY_DISPLAY } from '../types';
 import { Reveal, TiltCard } from './motion';
 import { Pill } from './Premium';
 
@@ -47,7 +47,7 @@ export const ProjectCard: React.FC<{ project: Project }> = ({ project }) => (
         <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/30 to-transparent opacity-80" />
         <div className="absolute left-5 top-5">
           <span className="rounded-full bg-black/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-200 backdrop-blur-md">
-            {project.category}
+            {CATEGORY_DISPLAY[project.category] || project.category}
           </span>
         </div>
         <Link

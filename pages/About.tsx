@@ -16,7 +16,8 @@ const About: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-20 text-center animate-fade-in-up">
         <h1 className="text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-6">About Toluene Tech</h1>
         <p className="text-xl text-slate-600 dark:text-slate-300 max-w-3xl mx-auto">
-          We are not just designers or developers. We are strategic partners helping ambitious companies build scalable digital products.
+          We are not just designers or developers. We are strategic partners helping ambitious companies build
+          scalable websites, apps, brand systems, and AI-powered digital products.
         </p>
       </div>
 
@@ -26,12 +27,12 @@ const About: React.FC = () => {
           <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-sm animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
             <Target className="h-10 w-10 text-brand-600 dark:text-brand-400 mb-4" />
             <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">Our Mission</h3>
-            <p className="text-slate-600 dark:text-slate-300">To bridge the gap between aesthetic design and functional engineering, delivering web products that perform as good as they look.</p>
+            <p className="text-slate-600 dark:text-slate-300">To bridge the gap between beautiful design and rigorous engineering — delivering websites, apps, and AI-powered products that perform as good as they look.</p>
           </div>
           <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-sm animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
             <Rocket className="h-10 w-10 text-brand-600 dark:text-brand-400 mb-4" />
             <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">Our Vision</h3>
-            <p className="text-slate-600 dark:text-slate-300">To be the go-to technical partner for businesses that value precision, speed, and modern web standards.</p>
+            <p className="text-slate-600 dark:text-slate-300">To be the go-to technical partner for businesses that value precision, speed, and modern standards across web, mobile, and AI.</p>
           </div>
           <div className="bg-white dark:bg-slate-800 p-8 rounded-xl shadow-sm animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
             <Users className="h-10 w-10 text-brand-600 dark:text-brand-400 mb-4" />
@@ -44,13 +45,14 @@ const About: React.FC = () => {
       {/* Workflow */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-20">
         <SectionHeading title="Our Workflow" subtitle="How We Deliver" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-12 relative">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mt-12 relative">
           <div className="hidden md:block absolute top-12 left-0 w-full h-0.5 bg-slate-200 dark:bg-slate-800 -z-10"></div>
           {[
-            { step: '01', title: 'Discovery', desc: 'Requirements gathering & strategy.' },
-            { step: '02', title: 'Design', desc: 'Wireframing, prototyping & visual UI.' },
-            { step: '03', title: 'Build', desc: 'Frontend development & integration.' },
-            { step: '04', title: 'Deliver', desc: 'QA, launch, and handover.' }
+            { step: '01', title: 'Discovery', desc: 'Requirements, goals & technical strategy — including AI/automation fit.' },
+            { step: '02', title: 'Design', desc: 'Wireframes, prototypes & polished visual systems.' },
+            { step: '03', title: 'Build', desc: 'Web, app, and AI development — clean code, tested integrations.' },
+            { step: '04', title: 'Launch', desc: 'QA, deployment, training and handover.' },
+            { step: '05', title: 'Support', desc: 'Ongoing improvements, monitoring & iteration.' }
           ].map((item, idx) => (
             <div key={idx} className="bg-white dark:bg-slate-800 p-6 rounded-lg border border-slate-100 dark:border-slate-700 text-center animate-fade-in-up" style={{ animationDelay: `${idx * 0.15}s` }}>
               <div className="w-12 h-12 bg-brand-600 dark:bg-brand-500 text-white rounded-full flex items-center justify-center font-bold text-lg mx-auto mb-4 border-4 border-white dark:border-slate-800 shadow-sm">

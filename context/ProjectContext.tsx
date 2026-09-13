@@ -70,13 +70,13 @@ const ProjectContext = createContext<ProjectContextType | undefined>(undefined);
 
 const INITIAL_NOTE: FounderNote = {
   heading: "A Note from the Founder",
-  message: "We founded Toluene Tech because we saw a disconnect between design agencies and dev shops. One made things pretty but slow; the other made things fast but ugly. We are the synthesis. We are tech-forward designers.",
+  message: "We founded Toluene Tech because we saw a disconnect between design agencies and dev shops — and a growing gap between businesses and the AI tools transforming their industries. We are the synthesis: premium design, rigorous engineering, and practical AI integration.",
   name: "Toluwalase O. Samuel",
   role: "Lead Engineer & Founder"
 };
 
 const INITIAL_NOTIFICATION: SiteNotification = {
-  message: "Welcome to Toluene Tech! Check out our new services.",
+  message: "Welcome to Toluene Tech! We now offer AI Integration & Automation.",
   isActive: false,
   link: "/services",
   linkText: "Learn More"

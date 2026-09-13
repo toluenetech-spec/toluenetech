@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../context/ProjectContext';
-import { Project, ProjectCategory } from '../types';
-import { Trash2, Edit2, Plus, LogOut, Save, X, Upload, Image as ImageIcon, FileText, Briefcase, User, MessageCircle, AlertCircle, CheckCircle, Bell, Link as LinkIcon, AlertTriangle, Share2, Cloud, ExternalLink } from 'lucide-react';
+import { Project, ProjectCategory, CATEGORY_ORDER, CATEGORY_DISPLAY } from '../types';
+import { AI_TECH_SUGGESTIONS } from '../constants';
+import { Trash2, Edit2, Plus, LogOut, Save, X, Upload, Image as ImageIcon, FileText, Briefcase, User, MessageCircle, AlertCircle, CheckCircle, Bell, Link as LinkIcon, AlertTriangle, Share2, Cloud, ExternalLink, Github } from 'lucide-react';
 
 const Admin: React.FC = () => {
   const { isAuthenticated, login, logout } = useAuth();
@@ -57,16 +58,22 @@ const Admin: React.FC = () => {
 
   const initialFormState: Omit<Project, 'id'> = {
     title: '',
-    category: 'Web Design',
+    category: 'Web Design' as ProjectCategory,
     shortDescription: '',
     fullDescription: '',
     tools: [],
     imageUrl: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?ixlib=rb-1.2.1&auto=format&fit=crop&w=1350&q=80',
+    liveUrl: '',
+    githubUrl: '',
     isFeatured: false,
     isPublished: false,
+    client: '',
+    completionDate: '',
     clientProblem: '',
     solution: '',
-    outcome: ''
+    outcome: '',
+    tags: [],
+    order: 0,
   };
   const [formData, setFormData] = useState<Omit<Project, 'id'>>(initialFormState);
 
@@ -602,7 +609,14 @@ const Admin: React.FC = () => {
                     {projects.map(p => (
                         <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300">
                         <td className="p-4 font-medium text-slate-900 dark:text-white">{p.title}</td>
-                        <td className="p-4">{p.category}</td>
+                        <td className="p-4">
+                           <span className="inline-flex items-center gap-1">
+                              {CATEGORY_DISPLAY[p.category] || p.category}
+                              {p.category === 'AI Integration & Automation' && (
+                                <span className="ml-1 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-700 dark:bg-brand-900/40 dark:text-brand-300">AI</span>
+                              )}
+                           </span>
+                        </td>
                         <td className="p-4">
                             <span className={`px-2 py-1 rounded-full text-xs font-bold ${p.isPublished ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}`}>
                             {p.isPublished ? 'Published' : 'Draft'}
@@ -642,16 +656,18 @@ const Admin: React.FC = () => {
                </div>
                <div>
                  <label className="block text-sm font-medium mb-1">Category</label>
-                 <select 
+                 <select
                     className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                     value={formData.category}
                     onChange={e => setFormData({...formData, category: e.target.value as ProjectCategory})}
                  >
-                    <option value="Web Design">Web Design</option>
-                    <option value="Frontend">Frontend</option>
-                    <option value="UI/UX">UI/UX</option>
-                    <option value="Product Design">Product Design</option>
-                    <option value="Motion & Video">Motion & Video</option>
+                    {CATEGORY_ORDER.map(cat => (
+                      <option key={cat} value={cat}>{CATEGORY_DISPLAY[cat]}</option>
+                    ))}
+                    <optgroup label="Legacy (existing projects only)">
+                      <option value="Product Design">Product Design → Graphic Design</option>
+                      <option value="Motion & Video">Motion & Video → Video Editing</option>
+                    </optgroup>
                  </select>
                </div>
                <div className="md:col-span-2">
@@ -711,6 +727,41 @@ const Admin: React.FC = () => {
                     />
                </div>
 
+               <div>
+                    <label className="block text-sm font-medium mb-1">
+                        <Github className="inline h-3.5 w-3.5 mr-1" />GitHub URL (Optional)
+                    </label>
+                    <input
+                        type="text"
+                        className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                        placeholder="https://github.com/..."
+                        value={formData.githubUrl || ''}
+                        onChange={e => setFormData({...formData, githubUrl: e.target.value})}
+                    />
+               </div>
+
+               <div>
+                    <label className="block text-sm font-medium mb-1">Client (Optional)</label>
+                    <input
+                        type="text"
+                        className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                        placeholder="Client name"
+                        value={formData.client || ''}
+                        onChange={e => setFormData({...formData, client: e.target.value})}
+                    />
+               </div>
+
+               <div>
+                    <label className="block text-sm font-medium mb-1">Completion Date (Optional)</label>
+                    <input
+                        type="text"
+                        className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                        placeholder="e.g. March 2025"
+                        value={formData.completionDate || ''}
+                        onChange={e => setFormData({...formData, completionDate: e.target.value})}
+                    />
+               </div>
+
                <div className="md:col-span-2">
                     <label className="block text-sm font-medium mb-1">Project Video URL (Optional — autoplays on cards)</label>
                     <div className="flex gap-2 items-center">
@@ -749,15 +800,59 @@ const Admin: React.FC = () => {
                </div>
 
                <div>
-                 <label className="block text-sm font-medium mb-1">Tools (comma separated)</label>
-                 <input 
-                    type="text" 
+                 <label className="block text-sm font-medium mb-1">Tools / Technologies (comma separated)</label>
+                 <input
+                    type="text"
                     className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-                    value={formData.tools.join(', ')} 
-                    onChange={handleToolChange} 
-                    placeholder="React, Figma, etc."
+                    value={formData.tools.join(', ')}
+                    onChange={handleToolChange}
+                    placeholder="React, Figma, OpenAI, etc."
                  />
                </div>
+
+               <div>
+                 <label className="block text-sm font-medium mb-1">Tags (comma separated)</label>
+                 <input
+                    type="text"
+                    className="w-full border p-2 rounded bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                    value={(formData.tags || []).join(', ')}
+                    onChange={e => setFormData({...formData, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean)})}
+                    placeholder="ai, chatbot, automation…"
+                 />
+               </div>
+
+               {/* Quick-add chips for AI technologies (only when AI category is selected) */}
+               {formData.category === 'AI Integration & Automation' && (
+                 <div className="md:col-span-2 rounded-xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-800/50 dark:bg-brand-900/10">
+                   <p className="mb-3 text-xs font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+                     Quick-add AI technologies
+                   </p>
+                   <div className="flex flex-wrap gap-2">
+                     {AI_TECH_SUGGESTIONS.map(tech => {
+                       const active = formData.tools.includes(tech);
+                       return (
+                         <button
+                           key={tech}
+                           type="button"
+                           onClick={() => {
+                             const next = active
+                               ? formData.tools.filter(t => t !== tech)
+                               : [...formData.tools, tech];
+                             setFormData({...formData, tools: next});
+                           }}
+                           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                             active
+                               ? 'bg-brand-600 text-white'
+                               : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-brand-100 dark:hover:bg-brand-900/30 border border-slate-200 dark:border-slate-700'
+                           }`}
+                         >
+                           {active ? '✓ ' : '+ '}{tech}
+                         </button>
+                       );
+                     })}
+                   </div>
+                 </div>
+               )}
 
                <div className="md:col-span-2">
                  <label className="block text-sm font-medium mb-1">Project Image</label>

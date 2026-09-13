@@ -1,26 +1,26 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Download, Sparkles, Code2, PenTool, Zap, Bot, Workflow, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, Download, Sparkles, PenTool, Workflow, CheckCircle2, Smartphone, BrainCircuit, Globe } from 'lucide-react';
 import { useProjects } from '../context/ProjectContext';
-import { SectionHeading, ProjectCard } from '../components/UI';
+import { SectionHeading, ProjectCard, ServiceCard } from '../components/UI';
 import { SERVICES, TOOLS_LIST } from '../constants';
 import { Reveal, StaggerGroup, StaggerItem, AnimatedHeadline, Magnetic, Counter, motion } from '../components/motion';
 import { Aurora, FloatingShapes, GlowButton, Pill } from '../components/Premium';
 
-const roles = ['AI Engineer', 'Full Stack Developer', 'Workflow Automation', 'UI/UX Designer', 'Frontend Engineer'];
+const roles = ['Web Design', 'Frontend Development', 'UI/UX Design', 'App Development', 'Graphic Design', 'Video Editing', 'AI Integration & Automation'];
 
 const stats = [
   { value: 50, suffix: '+', label: 'Projects Delivered' },
   { value: 98, suffix: '%', label: 'Client Retention' },
-  { value: 3, suffix: 'x', label: 'Average ROI' },
+  { value: 8, suffix: '', label: 'Core Services' },
   { value: 24, suffix: '/7', label: 'Critical Support' },
 ];
 
 const highlights = [
-  { icon: Bot, title: 'AI Engineering', desc: 'Intelligent features, LLM integrations, and automations that give your product a real edge.' },
-  { icon: Code2, title: 'Full-Stack Development', desc: 'Scalable, fast, accessible applications built on modern React architecture.' },
-  { icon: PenTool, title: 'UI/UX Design', desc: 'Research-backed design systems that improve retention and delight users.' },
-  { icon: Workflow, title: 'Workflow Automation', desc: 'Streamline operations and remove busywork with tailored automation pipelines.' },
+  { icon: Globe, title: 'Web Design & Development', desc: 'Premium websites, landing pages, and web platforms engineered for speed, SEO, and conversion.' },
+  { icon: Smartphone, title: 'App Design & Development', desc: 'Cross-platform apps and web apps crafted with native-feeling UI and rock-solid architecture.' },
+  { icon: PenTool, title: 'UI/UX & Graphic Design', desc: 'Research-backed design systems, branding, and visuals that feel premium and drive adoption.' },
+  { icon: BrainCircuit, title: 'AI Integration & Automation', desc: 'Chatbots, LLM integrations, AI-powered features, and workflow automations that work for your business.' },
 ];
 
 const Home: React.FC = () => {
@@ -42,7 +42,7 @@ const Home: React.FC = () => {
         <div className="relative z-10 mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <Pill className="mb-8">
-              <Sparkles className="h-3.5 w-3.5" /> Designing Intelligent Digital Experiences
+              <Sparkles className="h-3.5 w-3.5" /> Web • Apps • Design • AI
             </Pill>
           </motion.div>
 
@@ -59,8 +59,8 @@ const Home: React.FC = () => {
             transition={{ duration: 0.6, delay: 0.6 }}
             className="mx-auto mt-8 max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-300"
           >
-            Toluene Tech blends AI engineering, full-stack development, and award-level design to build
-            experiences that feel effortless and perform flawlessly.
+            Toluene Tech builds premium websites, applications, brand design, and AI-powered solutions —
+            blending engineering rigor with beautiful, conversion-focused design.
           </motion.p>
 
           {/* Rotating roles */}
@@ -112,14 +112,15 @@ const Home: React.FC = () => {
             </div>
             <div className="grid gap-0 md:grid-cols-2">
               <pre className="overflow-hidden p-6 font-mono text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-{`const experience = build({
-  ai: 'gpt-grade automations',
-  stack: ['React', 'TypeScript'],
-  design: 'award-level',
+{`const solution = build({
+  web: 'fast, SEO-ready sites',
+  apps: ['web', 'cross-platform'],
+  ai:   'chatbots + automation',
+  design: 'premium UI systems',
 });
 
 // ship with confidence →
-export default experience;`}
+export default solution;`}
               </pre>
               <div className="flex flex-col justify-center gap-3 border-t border-white/5 p-6 md:border-l md:border-t-0">
                 {['Performance budget met', 'Accessibility AA passed', 'Core Web Vitals: green'].map(item => (
@@ -172,6 +173,23 @@ export default experience;`}
         </StaggerGroup>
       </section>
 
+      {/* ---------------- SERVICES PREVIEW ---------------- */}
+      <section className="mx-auto mt-28 max-w-7xl px-4 sm:px-6 lg:px-8">
+        <SectionHeading title="Our services" subtitle="What We Offer" />
+        <StaggerGroup className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {SERVICES.slice(0, 8).map(service => (
+            <StaggerItem key={service.id}>
+              <ServiceCard service={service} />
+            </StaggerItem>
+          ))}
+        </StaggerGroup>
+        <div className="mt-12 text-center">
+          <GlowButton to="/services" variant="ghost">
+            Explore All Services <ArrowRight className="h-4 w-4" />
+          </GlowButton>
+        </div>
+      </section>
+
       {/* ---------------- TECH MARQUEE ---------------- */}
       <section className="mt-28">
         <Reveal className="mb-10 text-center">
@@ -222,7 +240,7 @@ export default experience;`}
               solve real business problems and drive results you can measure.
             </p>
             <div className="mt-8 space-y-3">
-              {['Business-focused design solutions', 'Scalable, AI-ready architecture', 'User-centered workflows', 'Transparent communication'].map(item => (
+              {['Websites, apps & brand systems', 'AI integrations & workflow automation', 'Scalable, maintainable architecture', 'Transparent communication & fast delivery'].map(item => (
                 <div key={item} className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 shrink-0 text-brand-500" />
                   <span className="font-medium text-slate-700 dark:text-slate-200">{item}</span>
@@ -254,7 +272,8 @@ export default experience;`}
                 Ready to build something exceptional?
               </h2>
               <p className="mx-auto mt-4 max-w-xl text-slate-600 dark:text-slate-300">
-                Let's discuss your project goals. We reply within 2 hours during business days.
+                Whether you need a new website, a mobile app, brand design, or an AI-powered solution,
+                we'd love to hear about it. We reply within 2 hours on business days.
               </p>
               <div className="mt-9 flex flex-col justify-center gap-4 sm:flex-row">
                 <Magnetic>
