@@ -165,26 +165,111 @@ button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   cursor: pointer; border: 1px solid transparent; white-space: nowrap;
 }
-.tt-btn-primary { background: #0b1220; color: #fff; border-color: #0b1220; }
-.tt-btn-primary:hover { background: #000; }
-.tt-btn-primary:active { transform: translateY(1px); }
-.dark .tt-btn-primary { background: #fff; color: #0b1220; border-color: #fff; }
-.dark .tt-btn-primary:hover { background: #e5e7eb; color: #0b1220; }
-.tt-btn-ghost { background: transparent; color: var(--ink); border-color: var(--ink); }
-.tt-btn-ghost:hover { background: var(--ink); color: var(--bg); }
-.dark .tt-btn-ghost { color: #fff; border-color: #fff; }
-.dark .tt-btn-ghost:hover { background: #fff; color: #0b1220; }
-.tt-btn-accent { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
-.tt-btn-accent:hover { filter: brightness(0.95); }
+/* ============================================================
+   BUTTONS — rock-solid visible-forever rules
+   Light mode: black bg, white text → hover stays black
+   Dark mode:  white bg, black text → hover inverts to black bg, white text
+   These selectors are deliberately !important so they beat any
+   legacy gradient classes scattered through older JSX.
+   ============================================================ */
+.tt-btn,
+button[class*="bg-gradient"],
+a[class*="bg-gradient"],
+a[class*="tt-btn"],
+button[class*="tt-btn"] {
+  border-radius: var(--radius-md) !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+}
 
-/* Force dark-mode primary for any remaining legacy gradient buttons */
+/* --- Primary: filled --- */
+.tt-btn-primary,
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+a[class*="from-brand-600 to-brand-400"],
+button[class*="from-brand-600 to-brand-400"] {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border: 1px solid #0b1220 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
+}
+.tt-btn-primary:hover,
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"]:hover,
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"]:hover,
+a[class*="from-brand-600 to-brand-400"]:hover,
+button[class*="from-brand-600 to-brand-400"]:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+
+/* --- Dark mode primary: white bg + black text; hover inverts --- */
+.dark .tt-btn-primary,
 .dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"],
-.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
-  background: #fff !important; color: #0b1220 !important; border-color: #fff !important;
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+.dark a[class*="from-brand-600 to-brand-400"],
+.dark button[class*="from-brand-600 to-brand-400"] {
+  background: #fff !important;
+  color: #0b1220 !important;
+  border-color: #fff !important;
+}
+.dark .tt-btn-primary:hover,
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"]:hover,
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"]:hover,
+.dark a[class*="from-brand-600 to-brand-400"]:hover,
+.dark button[class*="from-brand-600 to-brand-400"]:hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border-color: #0b1220 !important;
+}
+
+/* --- Ghost / secondary --- */
+.tt-btn-ghost {
+  background: transparent !important;
+  color: #0b1220 !important;
+  border: 1px solid #0b1220 !important;
+}
+.tt-btn-ghost:hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+}
+.dark .tt-btn-ghost {
+  background: transparent !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+}
+.dark .tt-btn-ghost:hover {
+  background: #fff !important;
+  color: #0b1220 !important;
+}
+
+/* --- Icon-only circular send buttons (AI Lab) --- */
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border: 1px solid #0b1220 !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]):hover {
+  background: #000 !important;
 }
 .dark button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
-  background: #fff !important; color: #0b1220 !important;
+  background: #fff !important;
+  color: #0b1220 !important;
+  border-color: #fff !important;
 }
+.dark button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]):hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border-color: #0b1220 !important;
+}
+
+/* --- Accent (blue) --- */
+.tt-btn-accent { background: var(--brand-accent) !important; color: #fff !important; border-color: var(--brand-accent) !important; }
+.tt-btn-accent:hover { filter: brightness(0.95); }
 
 /* ------------------------- Pills ------------------------- */
 .tt-pill {
