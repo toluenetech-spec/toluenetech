@@ -4,6 +4,7 @@ import { motion, AnimatePresence, useScroll } from 'framer-motion';
 import { Menu, X, Linkedin, Twitter, Instagram, Facebook, Mail, MessageCircle, Sun, Moon, Bell, ArrowUpRight, BrainCircuit } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
+import { GlowButton } from './Premium';
 
 // Custom TT Logo Component
 const Logo: React.FC<{ className?: string }> = ({ className = 'h-8 w-auto' }) => (
@@ -176,12 +177,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 {theme === 'dark' ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </button>
 
-              <Link
-                to="/start-project"
-                className="group ml-1 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-brand-600 to-brand-400 px-5 py-2.5 text-sm font-semibold text-white shadow-glow transition-all hover:shadow-glow-lg"
-              >
-                Start Project <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-              </Link>
+              <span className="ml-1">
+                <GlowButton to="/start-project" onClick={() => setIsMenuOpen(false)}>
+                  Start Project <ArrowUpRight className="h-4 w-4" />
+                </GlowButton>
+              </span>
             </nav>
 
             <div className="flex items-center gap-2 md:hidden">
@@ -219,13 +219,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                       {link.name}
                     </Link>
                   ))}
-                  <Link
-                    to="/start-project"
-                    onClick={() => setIsMenuOpen(false)}
-                    className="mt-2 rounded-xl bg-gradient-to-r from-brand-600 to-brand-400 py-3 text-center font-semibold text-white"
-                  >
-                    Start a Project
-                  </Link>
+                  <div className="mt-2">
+                    <GlowButton to="/start-project" onClick={() => setIsMenuOpen(false)} className="w-full">
+                      Start a Project
+                    </GlowButton>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -265,9 +263,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
               </p>
             </div>
             <div className="flex gap-3">
-              <Link to="/start-project" className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-brand-600 to-brand-400 px-6 py-3 text-sm font-semibold text-white shadow-glow transition-all hover:shadow-glow-lg">
+              <GlowButton to="/start-project">
                 Start a Project <ArrowUpRight className="h-4 w-4" />
-              </Link>
+              </GlowButton>
             </div>
           </div>
 
