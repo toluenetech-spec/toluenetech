@@ -52,47 +52,19 @@
               },
             },
             boxShadow: {
-              glow: '0 0 40px -8px rgba(47, 123, 255, 0.45)',
-              'glow-lg': '0 0 80px -12px rgba(47, 123, 255, 0.55)',
-              card: '0 20px 60px -24px rgba(0, 0, 0, 0.7)',
+              glow: '0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06)',
+              'glow-lg': '0 4px 12px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04)',
+              card: '0 4px 16px -4px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.04)',
             },
             animation: {
-              'float': 'float 7s ease-in-out infinite',
-              'float-slow': 'float 11s ease-in-out infinite',
-              'fade-in': 'fadeIn 0.8s ease-out forwards',
-              'fade-in-up': 'fadeInUp 0.8s ease-out forwards',
-              'pulse-slow': 'pulse 5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              'aurora': 'aurora 18s ease-in-out infinite',
+              'fade-in': 'fadeIn 0.5s ease-out forwards',
+              'fade-in-up': 'fadeInUp 0.5s ease-out forwards',
               'marquee': 'marquee 40s linear infinite',
-              'shimmer': 'shimmer 2.5s linear infinite',
-              'spin-slow': 'spin 14s linear infinite',
             },
             keyframes: {
-              float: {
-                '0%, 100%': { transform: 'translateY(0)' },
-                '50%': { transform: 'translateY(-16px)' },
-              },
-              fadeIn: {
-                '0%': { opacity: '0' },
-                '100%': { opacity: '1' },
-              },
-              fadeInUp: {
-                '0%': { opacity: '0', transform: 'translateY(24px)' },
-                '100%': { opacity: '1', transform: 'translateY(0)' },
-              },
-              aurora: {
-                '0%, 100%': { transform: 'translate(0, 0) scale(1)', opacity: '0.6' },
-                '33%': { transform: 'translate(6%, -8%) scale(1.15)', opacity: '0.9' },
-                '66%': { transform: 'translate(-6%, 6%) scale(0.95)', opacity: '0.7' },
-              },
-              marquee: {
-                '0%': { transform: 'translateX(0)' },
-                '100%': { transform: 'translateX(-50%)' },
-              },
-              shimmer: {
-                '0%': { backgroundPosition: '-200% 0' },
-                '100%': { backgroundPosition: '200% 0' },
-              },
+              fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+              fadeInUp: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+              marquee: { '0%': { transform: 'translateX(0)' }, '100%': { transform: 'translateX(-50%)' } },
             }
           }
         }
@@ -113,7 +85,7 @@
 </script>
 <link rel="stylesheet" href="/index.css">
 </head>
-  <body class="bg-white dark:bg-ink-950 text-slate-900 dark:text-slate-100 font-sans antialiased transition-colors duration-500">
+  <body class="bg-white dark:bg-ink-950 text-slate-900 dark:text-slate-100 font-sans antialiased">
     <div id="root"></div>
   <script type="module" src="/index.tsx"></script>
 </body>
