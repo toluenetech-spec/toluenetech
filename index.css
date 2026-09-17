@@ -40,78 +40,108 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
-body { margin: 0; overflow-x: hidden; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  margin: 0; overflow-x: hidden; background: var(--bg); color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
 img, svg, video { max-width: 100%; display: block; }
 a { color: inherit; text-decoration: none; }
-button { font-family: inherit; }
+button { font-family: inherit; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
 }
 
-/* Scrollbar — clean, neutral */
+/* Scrollbar — neutral */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:hover { background: #9ca3af; background-clip: padding-box; border: 2px solid transparent; }
 .dark ::-webkit-scrollbar-thumb { background: #374151; background-clip: padding-box; border: 2px solid transparent; }
 .dark ::-webkit-scrollbar-thumb:hover { background: #4b5563; background-clip: padding-box; border: 2px solid transparent; }
-
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ------------------------- Typography ------------------------- */
-.font-display { font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: -0.02em; }
-h1, h2, h3, h4 { font-family: "Inter", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; color: var(--ink); margin: 0; }
+/* Typography */
+.font-display { font-family: "Inter", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; }
+h1, h2, h3, h4 { color: var(--ink); margin: 0; letter-spacing: -0.02em; }
 p { color: var(--muted); margin: 0; line-height: 1.6; }
 
-/* ------------------------- Noise / Aurora (reined in) ------------------------- */
-.tt-noise::before { display: none; }
-.tt-grain { display: none; }
+/* --- Generic surface overrides: strip gimmicks from legacy classes --- */
+/* Noise/grain/aurora/cursor glow — KILL */
+.tt-noise::before, .tt-grain, .tt-cursor-glow, .tt-aurora, .tt-shimmer { display: none !important; }
+.animate-aurora, .animate-float, .animate-float-slow, .animate-pulse-slow, .animate-spin-slow,
+.animate-shimmer { animation: none !important; }
 
-/* ------------------------- Cards / surfaces ------------------------- */
+/* Glass -> clean surface */
 .tt-glass {
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-sm) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
 }
-.dark .tt-glass { background: var(--bg-elevated); border-color: var(--line); box-shadow: var(--shadow-sm); }
-.tt-glass:hover { border-color: var(--line-strong); box-shadow: var(--shadow-md); }
+.tt-glass:hover { border-color: var(--line-strong) !important; box-shadow: var(--shadow-md) !important; }
+.dark .tt-glass { background: var(--bg-elevated) !important; border-color: var(--line) !important; box-shadow: var(--shadow-sm) !important; }
 
+/* Glow border -> none */
 .tt-glow-border { position: relative; }
-.tt-glow-border::after { display: none; }
+.tt-glow-border::after { display: none !important; }
+.tt-glow-border:hover { transform: none !important; }
 
-/* ------------------------- Buttons ------------------------- */
-.tt-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
-  padding: 0.7rem 1.25rem; border-radius: var(--radius-md);
-  font-size: 0.9rem; font-weight: 600; line-height: 1;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
-  cursor: pointer; border: 1px solid transparent; white-space: nowrap;
+/* Gradient text -> plain ink */
+.tt-gradient-text {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: var(--ink) !important;
+  animation: none !important;
 }
-.tt-btn-primary { background: var(--ink); color: #fff; }
-.tt-btn-primary:hover { background: #000; }
-.tt-btn-primary:active { transform: translateY(1px); }
-.tt-btn-ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
-.tt-btn-ghost:hover { background: var(--bg-soft); }
-.tt-btn-accent { background: var(--brand-accent); color: #fff; }
-.tt-btn-accent:hover { filter: brightness(0.95); }
 
-/* ------------------------- Pills / badges ------------------------- */
-.tt-pill {
-  display: inline-flex; align-items: center; gap: 0.4rem;
-  padding: 0.3rem 0.7rem; border-radius: 999px;
-  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.02em;
-  background: var(--bg-soft); border: 1px solid var(--line); color: var(--muted);
+/* Gradient buttons -> solid professional buttons */
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500/20"] {
+  background-image: none !important;
 }
-.tt-pill-accent { background: var(--brand-accent-soft); border-color: transparent; color: var(--brand-accent); }
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"] {
+  background: var(--ink) !important; color: #fff !important;
+  box-shadow: none !important;
+  border: 1px solid var(--ink) !important;
+  border-radius: var(--radius-md) !important;
+}
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
+  background: var(--ink) !important; color: #fff !important;
+  box-shadow: none !important;
+}
+[class*="bg-brand-500/15"] { background: var(--brand-accent-soft) !important; color: var(--brand-accent) !important; }
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
+  background: #fff !important; color: #0b1220 !important; border-color: #fff !important;
+}
 
-/* ------------------------- Grid / Aurora / Blobs ------------------------- */
-.tt-aurora { display: none; }
-.animate-aurora { animation: none !important; }
+/* Inline "rounded-full" circular send icon buttons (AI Lab etc.) */
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: var(--ink) !important; color: #fff !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  border: none !important;
+}
 
+/* Progress-bar gradients -> solid accent */
+[class*="h-full rounded-full bg-gradient-to-r"],
+[class*="h-full"][class*="bg-gradient-to-r"] {
+  background: var(--brand-accent) !important;
+}
+
+/* shadow-glow family -> neutral */
+.shadow-glow, .shadow-glow-lg, .shadow-card { box-shadow: var(--shadow-md) !important; }
+
+/* Grid backdrop toned down (used on hero) */
 .tt-grid-bg {
   position: absolute; inset: 0; pointer-events: none;
   background-image:
@@ -123,52 +153,62 @@ p { color: var(--muted); margin: 0; line-height: 1.6; }
 }
 .dark .tt-grid-bg {
   background-image:
-    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
 }
 
-.tt-cursor-glow { display: none !important; }
-
-/* ------------------------- Text effects ------------------------- */
-.tt-gradient-text {
-  background: none;
-  -webkit-background-clip: unset;
-  background-clip: unset;
-  color: var(--ink);
-  animation: none;
+/* ------------------------- Buttons ------------------------- */
+.tt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  padding: 0.7rem 1.2rem; border-radius: var(--radius-md);
+  font-size: 0.9rem; font-weight: 600; line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  cursor: pointer; border: 1px solid transparent; white-space: nowrap;
 }
-.tt-shimmer { display: none; }
+.tt-btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.tt-btn-primary:hover { background: #000; }
+.tt-btn-primary:active { transform: translateY(1px); }
+.tt-btn-ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.tt-btn-ghost:hover { background: var(--bg-soft); }
+.tt-btn-accent { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
+.tt-btn-accent:hover { filter: brightness(0.95); }
 
-/* ------------------------- Sections ------------------------- */
-section { position: relative; }
+/* ------------------------- Pills ------------------------- */
+.tt-pill {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.25rem 0.6rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.02em;
+  background: var(--bg-soft); border: 1px solid var(--line); color: var(--muted);
+}
+.tt-pill-accent { background: var(--brand-accent-soft); border-color: transparent; color: var(--brand-accent); }
 
-/* ------------------------- Forms ------------------------- */
+/* Forms */
 .tt-input, .tt-textarea {
-  width: 100%;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg);
-  color: var(--ink);
-  font-size: 0.9rem;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%; padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-md);
+  background: var(--bg); color: var(--ink); font-size: 0.9rem; font-family: inherit;
+  outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .tt-input:focus, .tt-textarea:focus { border-color: var(--brand-accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
 .tt-label { font-size: 0.8rem; font-weight: 600; color: var(--ink); margin-bottom: 0.3rem; display: block; }
 
-/* ------------------------- Page hero ------------------------- */
+/* Page hero */
 .tt-page-hero { padding: 4rem 0 3rem; border-bottom: 1px solid var(--line); background: var(--bg-soft); }
 .tt-page-hero h1 { font-size: clamp(2rem, 4vw, 3rem); font-weight: 700; }
 .tt-page-hero p { margin-top: 0.8rem; font-size: 1.05rem; max-width: 46rem; }
 
-/* ------------------------- Utility shadows / motion off ------------------------- */
-.shadow-glow, .shadow-glow-lg { box-shadow: var(--shadow-md) !important; }
+/* Remove silly giant rounded-3xl on cards */
+[class*="rounded-3xl"].tt-glass, [class*="rounded-[2rem]"].tt-glass, [class*="rounded-[2rem]"] {
+  border-radius: var(--radius-lg) !important;
+}
 
+/* Remove translate-y hovers */
+[class*="hover:-translate-y"]:hover { transform: none !important; }
+
+/* Custom selection */
+::selection { background: var(--brand-accent); color: #fff; }
+
+/* Marquee */
 @keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 .tt-marquee-track { display: flex; width: max-content; animation: marquee 40s linear infinite; }
 .tt-marquee:hover .tt-marquee-track { animation-play-state: paused; }
-
-/* Selection */
-::selection { background: var(--brand-accent); color: #fff; }
