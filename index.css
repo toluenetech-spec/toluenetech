@@ -165,13 +165,26 @@ button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
   cursor: pointer; border: 1px solid transparent; white-space: nowrap;
 }
-.tt-btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.tt-btn-primary { background: #0b1220; color: #fff; border-color: #0b1220; }
 .tt-btn-primary:hover { background: #000; }
 .tt-btn-primary:active { transform: translateY(1px); }
-.tt-btn-ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
-.tt-btn-ghost:hover { background: var(--bg-soft); }
+.dark .tt-btn-primary { background: #fff; color: #0b1220; border-color: #fff; }
+.dark .tt-btn-primary:hover { background: #e5e7eb; color: #0b1220; }
+.tt-btn-ghost { background: transparent; color: var(--ink); border-color: var(--ink); }
+.tt-btn-ghost:hover { background: var(--ink); color: var(--bg); }
+.dark .tt-btn-ghost { color: #fff; border-color: #fff; }
+.dark .tt-btn-ghost:hover { background: #fff; color: #0b1220; }
 .tt-btn-accent { background: var(--brand-accent); color: #fff; border-color: var(--brand-accent); }
 .tt-btn-accent:hover { filter: brightness(0.95); }
+
+/* Force dark-mode primary for any remaining legacy gradient buttons */
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
+  background: #fff !important; color: #0b1220 !important; border-color: #fff !important;
+}
+.dark button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: #fff !important; color: #0b1220 !important;
+}
 
 /* ------------------------- Pills ------------------------- */
 .tt-pill {
