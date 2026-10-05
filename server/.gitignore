@@ -3,3 +3,4 @@ node_modules
 .dev.vars
 .drizzle
 .env
+server/drizzle/meta/_journal.json
