@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, desc, and } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { getAIProvider, AIConfigError } from '../ai';
 import { buildSystemPrompt } from '../assistant/prompt';
@@ -9,18 +9,18 @@ import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
 
-const MAX_MSG_LEN = 1000;
-const HISTORY_LIMIT = 8; // last N messages to keep as context per request
+const HISTORY_LIMIT = 8;
+const MAX_MSG = 1000;
 
-function sanitize(input: unknown): string {
-  if (typeof input !== 'string') return '';
-  return input.slice(0, MAX_MSG_LEN).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').trim();
+function sanitize(v: unknown, max = MAX_MSG): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().slice(0, max);
+  return t.length ? t : null;
 }
 
 function genAnonId(): string {
-  const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
-  return Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+  const b = new Uint8Array(16); crypto.getRandomValues(b);
+  return b.reduce((s, x) => s + x.toString(16).padStart(2, '0'), '');
 }
 
 app.get('/session', async (c) => {
@@ -29,13 +29,31 @@ app.get('/session', async (c) => {
   return c.json({ anonId });
 });
 
+/** Build the ordered list of model IDs to try for the public fast path. */
+function publicModelCandidates(env: Env): string[] {
+  const out: string[] = [];
+  if (env.AI_MODEL_PUBLIC) out.push(env.AI_MODEL_PUBLIC);
+  if (env.AI_PROVIDER === 'dahl') {
+    // Try several known Dahl fast-model IDs in order of likely availability+speed.
+    for (const m of [
+      'deepseek-flash',
+      'deepseek-v4-flash',
+      'DeepSeek-V3-Flash',
+      'deepseek-ai/DeepSeek-V3-Flash',
+      'deepseek-v3-flash',
+      'DeepSeek-R1',
+      'MiniMaxAI/MiniMax-M2.7',
+    ]) if (!out.includes(m)) out.push(m);
+  }
+  if (env.AI_MODEL && !out.includes(env.AI_MODEL)) out.push(env.AI_MODEL);
+  return out;
+}
+
 app.post('/chat', async (c) => {
   const env = c.env as Env;
   const ip = clientIp(c.req.raw, env as unknown as Record<string, string | undefined>);
   const rl = rateLimit(`chat:${ip}`, { windowMs: 60_000, max: 15 });
-  if (!rl.ok) {
-    return c.json({ error: 'Too many requests', retryAfter: rl.retryAfter }, 429);
-  }
+  if (!rl.ok) return c.json({ error: 'Too many requests', retryAfter: rl.retryAfter }, 429);
 
   let body: { message?: unknown; anonId?: unknown; name?: unknown; email?: unknown };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -44,96 +62,74 @@ app.post('/chat', async (c) => {
   if (!message) return c.json({ error: 'Empty message' }, 400);
 
   let anonId = typeof body.anonId === 'string' && body.anonId.length <= 64 ? body.anonId : genAnonId();
-  const name = typeof body.name === 'string' ? sanitize(body.name).slice(0, 80) : null;
-  const email = typeof body.email === 'string' ? sanitize(body.email).slice(0, 160) : null;
+  const name = sanitize(body.name, 80);
+  const email = sanitize(body.email, 160);
 
   const db = getDb(env);
 
-  // find or create session
-  let sessions = await db.select().from(schema.assistantSessions)
-    .where(eq(schema.assistantSessions.anonId, anonId)).limit(1);
-  let session = sessions[0];
+  // session
+  let [session] = await db.select().from(schema.assistantSessions).where(eq(schema.assistantSessions.anonId, anonId)).limit(1);
   if (!session) {
-    const [newSess] = await db.insert(schema.assistantSessions).values({
-      anonId,
-      name: name ?? null,
-      email: email ?? null,
-    }).returning();
-    session = newSess;
+    [session] = await db.insert(schema.assistantSessions).values({ anonId, name, email }).returning();
   } else if ((name && session.name !== name) || (email && session.email !== email)) {
     await db.update(schema.assistantSessions)
       .set({ name: name ?? session.name, email: email ?? session.email, lastMessageAt: new Date() })
       .where(eq(schema.assistantSessions.id, session.id));
   }
 
-  // store user message
   await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'user', content: message });
 
-  // provider check
-  let ai;
-  // Pick model per surface:
-  //   - Public visitor chat → AI_MODEL_PUBLIC (falls back to DeepSeek-V3-Flash on Dahl for speed)
-  //   - Admin & client use the default AI_MODEL (MiniMax M2.7 on Dahl for quality)
-  const publicModel = env.AI_MODEL_PUBLIC
-    ?? (env.AI_PROVIDER === 'dahl' ? 'deepseek-ai/DeepSeek-V3-Flash' : undefined);
-  try { ai = getAIProvider(env, { model: publicModel }); }
-  catch (e) {
-    if (e instanceof AIConfigError) {
-      return c.json({
-        reply: "The assistant isn't connected to an AI provider yet — we're wiring that up right now. In the meantime, feel free to start a project at /start-project or email hello@toluenetech.com.",
-        anonId,
-        providerMissing: true,
-      }, 200);
-    }
-    throw e;
-  }
-
-  // load history + CMS context
-  const history = await db.select({ role: schema.assistantMessages.role, content: schema.assistantMessages.content })
+  // history + RAG context
+  const historyRows = await db.select({ role: schema.assistantMessages.role, content: schema.assistantMessages.content })
     .from(schema.assistantMessages)
     .where(eq(schema.assistantMessages.sessionId, session.id))
     .orderBy(desc(schema.assistantMessages.createdAt))
     .limit(HISTORY_LIMIT);
-  history.reverse();
-
+  historyRows.reverse();
   const cmsContext = await buildPublicContext(db);
-
   const system = buildSystemPrompt({ cmsContext });
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
     { role: 'system', content: system },
-    ...history.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
+    ...historyRows.map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
   ];
 
-  let reply: string;
-  try {
-    reply = await ai.chat(messages);
-  } catch (err) {
-    reply = "I'm having a little trouble reaching our AI right now. Please try again in a minute, or go straight to /start-project to tell us what you're building.";
+  // Try model candidates in order until one succeeds.
+  let reply: string | null = null;
+  let configured = false;
+  for (const model of publicModelCandidates(env)) {
+    try {
+      const ai = getAIProvider(env, { model });
+      configured = true;
+      const r = await ai.chat(messages, { temperature: 0.5, maxTokens: 500 });
+      if (r && r.trim().length > 1) { reply = r.trim(); break; }
+    } catch (e) {
+      if (e instanceof AIConfigError) { configured = false; break; }
+      // otherwise try next model
+    }
   }
 
-  // store assistant message
-  await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
-  await db.update(schema.assistantSessions)
-    .set({ lastMessageAt: new Date() })
-    .where(eq(schema.assistantSessions.id, session.id));
+  if (!reply) {
+    reply = configured
+      ? "I'm hitting a small hiccup reaching our models right now. Please try again in a moment, or go to /start-project to tell us what you're building."
+      : "Tolesh AI is being connected to our model provider — we'll be live shortly. In the meantime, start a project at /start-project or email hello@toluenetech.com.";
+  }
 
-  // lead-capture heuristic: if user provided email and message signals intent, create lead
+  await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
+  await db.update(schema.assistantSessions).set({ lastMessageAt: new Date() }).where(eq(schema.assistantSessions.id, session.id));
+
+  // lead capture
   const intent = detectIntent(message);
   if (email && intent && !session.capturedLeadId) {
     try {
       const ref = await nextLeadRef(db);
       const [lead] = await db.insert(schema.leads).values({
-        ref,
-        name: name ?? 'Website visitor (assistant)',
-        email,
-        source: 'assistant',
-        requirements: message,
-        status: 'NEW',
+        ref, name: name ?? 'Website visitor (assistant)', email,
+        source: 'assistant', requirements: message, status: 'NEW',
       }).returning();
       await db.update(schema.assistantSessions)
         .set({ capturedLeadId: lead.id, intent })
         .where(eq(schema.assistantSessions.id, session.id));
-    } catch { /* lead capture is best-effort */ }
+    } catch { /* best effort */ }
   } else if (intent && !session.intent) {
     await db.update(schema.assistantSessions).set({ intent }).where(eq(schema.assistantSessions.id, session.id));
   }
@@ -150,10 +146,9 @@ function detectIntent(msg: string): 'start-project' | 'pricing' | null {
 }
 
 async function nextLeadRef(db: ReturnType<typeof getDb>): Promise<string> {
-  const [row] = await db.select({ ref: schema.leads.ref }).from(schema.leads)
-    .orderBy(desc(schema.leads.createdAt)).limit(1);
-  const lastNum = row?.ref ? parseInt(row.ref.replace(/\D/g, ''), 10) || 0 : 0;
-  return `TT-${String(lastNum + 1).padStart(4, '0')}`;
+  const [row] = await db.select({ ref: schema.leads.ref }).from(schema.leads).orderBy(desc(schema.leads.createdAt)).limit(1);
+  const n = row?.ref ? parseInt(row.ref.replace(/\D/g, ''), 10) || 0 : 0;
+  return `TT-${String(n + 1).padStart(4, '0')}`;
 }
 
 export default app;
