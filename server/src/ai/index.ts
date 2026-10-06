@@ -2,6 +2,7 @@ import { AIConfigError, type AIProvider } from './types';
 import { createOpenAIProvider } from './providers/openai';
 import { createAnthropicProvider } from './providers/anthropic';
 import { createGeminiProvider } from './providers/gemini';
+import { createDahlProvider } from './providers/dahl';
 import type { Env } from '../env';
 
 export function getAIProvider(env: Env): AIProvider {
@@ -13,6 +14,7 @@ export function getAIProvider(env: Env): AIProvider {
     case 'openai':    return createOpenAIProvider({ apiKey: env.AI_API_KEY, model });
     case 'anthropic': return createAnthropicProvider({ apiKey: env.AI_API_KEY, model });
     case 'gemini':    return createGeminiProvider({ apiKey: env.AI_API_KEY, model });
+    case 'dahl':      return createDahlProvider({ apiKey: env.AI_API_KEY, model });
     default: throw new AIConfigError(`Unknown AI_PROVIDER: ${env.AI_PROVIDER}`);
   }
 }

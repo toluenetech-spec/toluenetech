@@ -3,7 +3,7 @@ export interface Env {
 
   // Secrets (set via wrangler secret or .dev.vars)
   DATABASE_URL: string;
-  AI_PROVIDER?: 'openai' | 'anthropic' | 'gemini';
+  AI_PROVIDER?: 'openai' | 'anthropic' | 'gemini' | 'dahl';
   AI_API_KEY?: string;
   AI_MODEL?: string;
   ASSISTANT_SECRET?: string;

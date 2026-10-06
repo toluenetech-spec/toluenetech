@@ -2,7 +2,7 @@
 #
 # Only SECRETS are set via GitHub Actions secrets / wrangler secret put:
 #   DATABASE_URL   — Neon postgres://... (contains password)
-#   AI_PROVIDER    — optional; set later when you add AI (openai|anthropic|gemini)
+#   AI_PROVIDER    — optional; set later when you add AI (openai|anthropic|gemini|dahl)
 #   AI_API_KEY     — optional
 #   AI_MODEL       — optional
 name = "toluene-tech-api"
