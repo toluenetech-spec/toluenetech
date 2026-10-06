@@ -6,6 +6,7 @@ export interface Env {
   AI_PROVIDER?: 'openai' | 'anthropic' | 'gemini' | 'dahl';
   AI_API_KEY?: string;
   AI_MODEL?: string;
+  AI_MODEL_PUBLIC?: string;  // override for public visitor chat (faster/cheaper model)
   ASSISTANT_SECRET?: string;
   CORS_ORIGIN?: string;
   R2_PUBLIC_URL?: string;

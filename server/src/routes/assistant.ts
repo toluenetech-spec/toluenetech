@@ -71,7 +71,12 @@ app.post('/chat', async (c) => {
 
   // provider check
   let ai;
-  try { ai = getAIProvider(env); }
+  // Pick model per surface:
+  //   - Public visitor chat → AI_MODEL_PUBLIC (falls back to DeepSeek-V3-Flash on Dahl for speed)
+  //   - Admin & client use the default AI_MODEL (MiniMax M2.7 on Dahl for quality)
+  const publicModel = env.AI_MODEL_PUBLIC
+    ?? (env.AI_PROVIDER === 'dahl' ? 'deepseek-ai/DeepSeek-V3-Flash' : undefined);
+  try { ai = getAIProvider(env, { model: publicModel }); }
   catch (e) {
     if (e instanceof AIConfigError) {
       return c.json({

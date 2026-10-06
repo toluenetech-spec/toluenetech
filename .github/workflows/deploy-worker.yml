@@ -42,7 +42,12 @@ jobs:
         run: |
           if [ -n "${{ secrets.AI_PROVIDER }}" ]; then echo "${{ secrets.AI_PROVIDER }}" | npx wrangler secret put AI_PROVIDER --config server/wrangler.toml; fi
           if [ -n "${{ secrets.AI_API_KEY }}" ];  then echo "${{ secrets.AI_API_KEY }}"  | npx wrangler secret put AI_API_KEY  --config server/wrangler.toml; fi
+          # Default admin/client model to MiniMax-M2.7 on Dahl unless overridden.
           if [ -n "${{ secrets.AI_MODEL }}" ];    then echo "${{ secrets.AI_MODEL }}"    | npx wrangler secret put AI_MODEL    --config server/wrangler.toml; fi
+          # Public-visitor model defaults to DeepSeek-V3-Flash for speed; override with AI_MODEL_PUBLIC secret.
+          PUBLIC_MODEL="${{ secrets.AI_MODEL_PUBLIC }}"
+          if [ -z "$PUBLIC_MODEL" ] && [ "${{ secrets.AI_PROVIDER }}" = "dahl" ]; then PUBLIC_MODEL="deepseek-ai/DeepSeek-V3-Flash"; fi
+          if [ -n "$PUBLIC_MODEL" ]; then echo "$PUBLIC_MODEL" | npx wrangler secret put AI_MODEL_PUBLIC --config server/wrangler.toml; fi
 
       - name: Deploy to Cloudflare Workers
         env:
