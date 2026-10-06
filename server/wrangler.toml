@@ -1,35 +1,23 @@
 # Cloudflare Workers config for Toluene Tech API
 #
-# Secrets (never commit real values):
-#   wrangler secret put DATABASE_URL          # Neon postgres://...
-#   wrangler secret put AI_PROVIDER           # openai | anthropic | gemini
-#   wrangler secret put AI_API_KEY            # provider key (sk-...)
-#   wrangler secret put AI_MODEL              # e.g. gpt-4o-mini / claude-3-5-haiku-latest / gemini-1.5-flash
-#   wrangler secret put ASSISTANT_SECRET      # random 32+ char string for rate-limit/signing
-#   wrangler secret put CORS_ORIGIN           # https://toluenetech.com
-#
-# For local dev copy .dev.vars.example to .dev.vars and fill in.
+# Only SECRETS are set via GitHub Actions secrets / wrangler secret put:
+#   DATABASE_URL   — Neon postgres://... (contains password)
+#   AI_PROVIDER    — optional; set later when you add AI (openai|anthropic|gemini)
+#   AI_API_KEY     — optional
+#   AI_MODEL       — optional
 name = "toluene-tech-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-21"
 compatibility_flags = ["nodejs_compat"]
+account_id = "5ba6343e7dbce7708785cffe6d9e55ae"
 
-# R2 bucket binding — create the bucket first:
-#   wrangler r2 bucket create toluene-assets
-# Then set the public custom domain in the Cloudflare dashboard -> R2 -> bucket -> Settings -> Public access.
 [[r2_buckets]]
 binding = "ASSETS"
-bucket_name = "toluene-assets"
-preview_bucket_name = "toluene-assets-dev"
+bucket_name = "toluenetech-assets"
+preview_bucket_name = "toluenetech-assets-dev"
 
 [vars]
 ENVIRONMENT = "production"
-# R2_PUBLIC_URL is the public CDN base for uploaded assets (set in Cloudflare dashboard -> R2 -> custom domain)
-# e.g. https://assets.toluenetech.com
-R2_PUBLIC_URL = "https://assets.toluenetech.com"
-
-# CORS for Netlify-hosted frontend. Override per-environment via secret.
-# [env.production.vars]
-# CORS_ORIGIN = "https://toluenetech.com"
-# [env.preview.vars]
-# CORS_ORIGIN = "https://deploy-preview-*--curious-sprinkles.netlify.app"
+R2_PUBLIC_URL = "https://pub-3ba2d6d48fc941ae93a9328a913b8b85.r2.dev"
+CORS_ORIGIN = "http://localhost:5173,https://curious-sprinkles-59674e.netlify.app,https://toluenetech.com"
+ASSISTANT_SECRET = "00d40a3066b3c508631b9b45cfc580a5cc262358f4213a3df0eb54a7499aa94a"
