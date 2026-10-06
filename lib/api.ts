@@ -3,9 +3,12 @@
  * In local dev it talks to wrangler on :8787; in production it uses the
  * relative path /api (proxied by Netlify/Vite) or VITE_API_URL.
  */
-// Use relative /api in production (proxied to the Worker); localhost:8787 in dev.
-const _env = (import.meta as unknown as { env?: { VITE_API_URL?: string; DEV?: boolean } }).env;
-const API_BASE = _env?.VITE_API_URL ?? (_env?.DEV ? 'http://localhost:8787' : '/api');
+// In local dev we hit the Wrangler proxy (vite.config.ts proxies /api -> :8787).
+// In production (Netlify/Cloudflare Pages) we hit the deployed Worker directly.
+// Override by setting VITE_API_URL in your build env.
+const _env = (import.meta as unknown as { env?: { VITE_API_URL?: string; DEV?: boolean; PROD?: boolean } }).env;
+const API_BASE = _env?.VITE_API_URL
+  ?? (_env?.DEV ? '' : 'https://toluene-tech-api.toluenetech.workers.dev');
 
 function anonId(): string | null {
   try { return localStorage.getItem('tt_anon_id'); } catch { return null; }
