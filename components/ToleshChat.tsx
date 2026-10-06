@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Send, Sparkles, ShieldCheck, Headphones } from 'lucide-react';
 import ToleshAvatar from './ToleshAvatar';
+import Markdown from '../lib/markdown';
 
 export type ToleshMode = 'public' | 'admin' | 'client';
 
@@ -229,12 +230,16 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
                     <span style={{ fontStyle: 'italic' }}>Thinking</span>
                   </div>
                 ) : (
-                  <div style={{
-                    fontSize: '0.9rem', lineHeight: 1.65, color: botBubbleFg,
-                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                    borderRadius: '4px',
-                    ...(m.error ? { color: isDark ? '#fca5a5' : '#b91c1c' } : {}),
-                  }}>{m.content}</div>
+                  <div
+                    style={{
+                      fontSize: '0.9rem', color: botBubbleFg,
+                      wordBreak: 'break-word',
+                      '--tt-accent': accent,
+                      ...(m.error ? { color: isDark ? '#fca5a5' : '#b91c1c' } : {}),
+                    } as React.CSSProperties}
+                  >
+                    <Markdown text={m.content} isDark={isDark} accent={accent} />
+                  </div>
                 )}
               </div>
             </div>

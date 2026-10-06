@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq, desc, and } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { getAIProvider, AIConfigError } from '../ai';
+import { stripThinking } from '../ai/strip-thinking';
 import { buildSystemPrompt } from '../assistant/prompt';
 import { rateLimit, clientIp } from '../lib/rate-limit';
 import { authClient } from '../lib/auth';
@@ -116,6 +117,7 @@ Rules:
   let reply: string;
   try { reply = await ai.chat(messages); }
   catch { reply = "I hit an error reaching the model — please try again in a moment."; }
+  reply = stripThinking(reply);
 
   await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
   return c.json({ reply, anonId });

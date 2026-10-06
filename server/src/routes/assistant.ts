@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { getAIProvider, AIConfigError } from '../ai';
+import { stripThinking } from '../ai/strip-thinking';
 import { buildSystemPrompt } from '../assistant/prompt';
 import { buildPublicContext } from '../assistant/context';
 import { rateLimit, clientIp } from '../lib/rate-limit';
@@ -101,7 +102,8 @@ app.post('/chat', async (c) => {
       const ai = getAIProvider(env, { model });
       configured = true;
       const r = await ai.chat(messages, { temperature: 0.5, maxTokens: 500 });
-      if (r && r.trim().length > 1) { reply = r.trim(); break; }
+      const cleaned = stripThinking(r);
+      if (cleaned && cleaned.length > 1) { reply = cleaned; break; }
     } catch (e) {
       if (e instanceof AIConfigError) { configured = false; break; }
       // otherwise try next model
@@ -113,6 +115,7 @@ app.post('/chat', async (c) => {
       ? "I'm hitting a small hiccup reaching our models right now. Please try again in a moment, or go to /start-project to tell us what you're building."
       : "Tolesh AI is being connected to our model provider — we'll be live shortly. In the meantime, start a project at /start-project or email hello@toluenetech.com.";
   }
+  reply = stripThinking(reply);
 
   await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
   await db.update(schema.assistantSessions).set({ lastMessageAt: new Date() }).where(eq(schema.assistantSessions.id, session.id));

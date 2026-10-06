@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { getAIProvider, AIConfigError } from '../ai';
+import { stripThinking } from '../ai/strip-thinking';
 import { buildSystemPrompt } from '../assistant/prompt';
 import { buildPublicContext } from '../assistant/context';
 import { rateLimit, clientIp } from '../lib/rate-limit';
@@ -106,6 +107,7 @@ When asked to take an action (update status, send an email), reply that automati
   let reply: string;
   try { reply = await ai.chat(messages); }
   catch { reply = "I hit an error reaching the model. Try again in a moment."; }
+  reply = stripThinking(reply);
 
   await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
   return c.json({ reply, anonId });
