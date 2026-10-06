@@ -17,20 +17,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci || npm install
-
-      - name: Install Wrangler
-        run: npm install --no-save wrangler@latest
+      - name: Install dependencies (Wrangler is already in devDependencies)
+        run: npm install
 
       - name: Create preview R2 bucket (idempotent)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
-        run: npx wrangler r2 bucket create toluenetech-assets-dev || true
+        run: npx wrangler r2 bucket create toluenetech-assets-dev --config server/wrangler.toml || true
 
       - name: Upload DATABASE_URL secret
         env:
