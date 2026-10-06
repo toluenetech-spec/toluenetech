@@ -408,9 +408,36 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addLead = async (input: Omit<Lead, 'id' | 'createdAt' | 'reference'>): Promise<Lead> => {
-    const lead: Lead = { ...input, id: uid('l_'), reference: nextLeadReference(), createdAt: new Date().toISOString(), status: input.status || 'new', source: input.source || 'website' };
+    // Determine TT-xxxx reference locally first (keeps UI instant) but prefer
+    // the server-generated one from Neon when available.
+    const localRef = nextLeadReference();
+    const lead: Lead = { ...input, id: uid('l_'), reference: localRef, createdAt: new Date().toISOString(), status: input.status || 'new', source: input.source || 'website' };
     setLeads(prev => [lead, ...prev]);
     await saveDoc('leads', lead.id, lead);
+
+    // Also write to the Neon-backed Worker so leads persist regardless of Firebase state.
+    // Fire-and-forget with a graceful fallback — we never want to block the user.
+    try {
+      const { submitLead } = await import('../lib/api');
+      const res = await submitLead({
+        name: input.name,
+        email: input.email,
+        phone: input.phone || undefined,
+        company: input.company || undefined,
+        services: Array.isArray(input.projectType) ? input.projectType : undefined,
+        requirements: (input as { requirements?: string; description?: string }).requirements || (input as { description?: string }).description,
+        budget: (input as { budget?: string }).budget,
+        timeline: (input as { timeline?: string }).timeline,
+        source: lead.source,
+      });
+      if (res?.ref) {
+        lead.reference = res.ref;
+        setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, reference: res.ref } : l));
+        await saveDoc('leads', lead.id, { reference: res.ref });
+      }
+    } catch {
+      /* ignore — Firebase already has the lead; Neon will sync in a later backfill */
+    }
     return lead;
   };
 
