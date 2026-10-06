@@ -32,9 +32,20 @@ import Admin from './pages/Admin';
 import PortalLogin from './pages/portal/Login';
 import Portal from './pages/portal/Portal';
 import PageLoader from './components/PageLoader';
+import ToleshWidget from './components/ToleshWidget';
 
-const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => <>{children}</>;
-const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => <>{children}</>;
+const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <>
+    {children}
+    <ToleshWidget mode="admin" />
+  </>
+);
+const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <>
+    {children}
+    <ToleshWidget mode="client" />
+  </>
+);
 
 const PageTransition: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <motion.div

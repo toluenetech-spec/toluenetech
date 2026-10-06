@@ -5,6 +5,7 @@ import { Menu, X, Linkedin, Twitter, Instagram, Facebook, Mail, MessageCircle, S
 import { useTheme } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import { GlowButton } from './Premium';
+import ToleshWidget from './ToleshWidget';
 
 // Custom TT Logo Component
 const Logo: React.FC<{ className?: string }> = ({ className = 'h-8 w-auto' }) => (
@@ -347,6 +348,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
           </div>
         </div>
       </footer>
+      <ToleshWidget mode="public" />
     </div>
   );
 };

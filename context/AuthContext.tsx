@@ -18,11 +18,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const ADMIN_PASSWORD = 'iloveesther221@@';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [role, setRole] = useState<Role>(null);
+  const alreadyAuthed = (() => {
+    try { return sessionStorage.getItem('tt_admin_session') === ADMIN_PASSWORD; } catch { return false; }
+  })();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(alreadyAuthed);
+  const [role, setRole] = useState<Role>(alreadyAuthed ? 'admin' : null);
 
   const login = (password: string) => {
     if (password === ADMIN_PASSWORD) {
+      try { sessionStorage.setItem('tt_admin_session', password); } catch { /* ignore */ }
       setIsAuthenticated(true);
       setRole('admin');
       return true;
@@ -31,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    try { sessionStorage.removeItem('tt_admin_session'); } catch { /* ignore */ }
     setIsAuthenticated(false);
     setRole(null);
   };

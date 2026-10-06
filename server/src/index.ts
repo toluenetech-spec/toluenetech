@@ -5,6 +5,8 @@ import type { Env } from './env';
 import health from './routes/health';
 import cms from './routes/cms';
 import assistant from './routes/assistant';
+import assistantAdmin from './routes/assistant-admin';
+import assistantClient from './routes/assistant-client';
 import leads from './routes/leads';
 import media from './routes/media';
 
@@ -18,7 +20,12 @@ app.use('*', async (c, next) => {
 
 app.route('/healthz', health);
 app.route('/cms', cms);
+// Public assistant mounts at /assistant so its /session and /chat become
+// /assistant/session and /assistant/chat. Admin/client are mounted at their
+// own /assistant/admin and /assistant/client prefixes (chat-only).
 app.route('/assistant', assistant);
+app.route('/assistant/admin', assistantAdmin);
+app.route('/assistant/client', assistantClient);
 app.route('/leads', leads);
 app.route('/media', media);
 
