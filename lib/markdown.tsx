@@ -92,12 +92,12 @@ const Markdown: React.FC<{ text: string; isDark?: boolean; accent?: string }> = 
         if (b.type === 'p')
           return <p key={i} style={{ margin: 0, lineHeight: 1.65 }}>{renderInline(b.text || '', `p${i}`)}</p>;
         if (b.type === 'ul')
-          return <ul key={i} style={{ margin: 0, paddingLeft: '1.2rem', lineHeight: 1.6 }}>
-            {(b.items || []).map((it, j) => <li key={j} style={{ marginBottom: '0.15rem' }}>{renderInline(it, `ul${i}-${j}`)}</li>)}
+          return <ul key={i} style={{ margin: 0, paddingLeft: '1.25rem', lineHeight: 1.6 }}>
+            {(b.items || []).map((it, j) => <li key={j} style={{ marginBottom: '0.2rem' }}>{renderInline(it, `ul${i}-${j}`)}</li>)}
           </ul>;
         if (b.type === 'ol')
-          return <ol key={i} style={{ margin: 0, paddingLeft: '1.3rem', lineHeight: 1.6 }}>
-            {(b.items || []).map((it, j) => <li key={j} style={{ marginBottom: '0.15rem' }}>{renderInline(it, `ol${i}-${j}`)}</li>)}
+          return <ol key={i} style={{ margin: 0, paddingLeft: '1.35rem', lineHeight: 1.6 }}>
+            {(b.items || []).map((it, j) => <li key={j} style={{ marginBottom: '0.2rem' }}>{renderInline(it, `ol${i}-${j}`)}</li>)}
           </ol>;
         if (b.type === 'quote')
           return <blockquote key={i} style={{
