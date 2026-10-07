@@ -24,6 +24,9 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "esModuleInterop": true
+  },
+  "include": ["*.ts", "*.tsx", "components/**/*", "context/**/*", "lib/**/*", "pages/**/*", "App.tsx", "index.tsx"],
+  "exclude": ["server", "dist", "node_modules"]
 }

@@ -2,8 +2,6 @@ import React, { useRef, useState, useEffect } from 'react';
 import {
   motion,
   useInView,
-  useMotionValue,
-  useSpring,
   useScroll,
   useTransform,
   MotionValue,
@@ -84,113 +82,31 @@ export const StaggerItem: React.FC<{ children: React.ReactNode; className?: stri
   </motion.div>
 );
 
-/** AnimatedHeadline — reveals a headline word-by-word. */
+/**
+ * Magnetic / Tilt — intentionally disabled. Cursor-following buttons and
+ * 3D-tilting cards read as AI-generated and distract from content. We keep
+ * the exports as no-ops so existing call-sites don't break.
+ */
+export const Magnetic: React.FC<{ children: React.ReactNode; className?: string; strength?: number }> = ({ children, className }) => (
+  <div className={className}>{children}</div>
+);
+export const TiltCard: React.FC<{ children: React.ReactNode; className?: string; max?: number }> = ({ children, className }) => (
+  <div className={className}>{children}</div>
+);
+
+/** AnimatedHeadline — simplified fade-in. */
 export const AnimatedHeadline: React.FC<{
-  text: string;
-  className?: string;
-  highlight?: string;
-  as?: 'h1' | 'h2' | 'h3';
-  delay?: number;
-}> = ({ text, className = '', highlight, as = 'h1', delay = 0 }) => {
-  const words = text.split(' ');
-  const MotionTag = motion[as];
-  return (
-    <MotionTag
-      className={className}
-      initial="hidden"
-      animate="show"
-      variants={{ show: { transition: { staggerChildren: 0.08, delayChildren: delay } } }}
-    >
-      {words.map((word, i) => {
-        const isHighlight = highlight && word.replace(/[.,]/g, '') === highlight;
-        return (
-          <span key={i} className="inline-block overflow-hidden align-bottom">
-            <motion.span
-              className={`inline-block ${isHighlight ? 'tt-gradient-text' : ''}`}
-              variants={{
-                hidden: { y: '110%', opacity: 0 },
-                show: { y: '0%', opacity: 1, transition: { duration: 0.7, ease: [0.22, 1, 0.36, 1] } },
-              }}
-            >
-              {word}&nbsp;
-            </motion.span>
-          </span>
-        );
-      })}
-    </MotionTag>
-  );
-};
-
-/** MagneticButton — content is pulled toward the cursor on hover. */
-export const Magnetic: React.FC<{
-  children: React.ReactNode;
-  className?: string;
-  strength?: number;
-}> = ({ children, className, strength = 0.35 }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const sx = useSpring(x, { stiffness: 220, damping: 18, mass: 0.4 });
-  const sy = useSpring(y, { stiffness: 220, damping: 18, mass: 0.4 });
-
-  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const relX = e.clientX - (rect.left + rect.width / 2);
-    const relY = e.clientY - (rect.top + rect.height / 2);
-    x.set(relX * strength);
-    y.set(relY * strength);
-  };
-
-  const reset = () => { x.set(0); y.set(0); };
-
+  text: string; className?: string; highlight?: string; as?: 'h1' | 'h2' | 'h3'; delay?: number;
+}> = ({ text, className = '', as = 'h1', delay = 0 }) => {
   return (
     <motion.div
-      ref={ref}
-      onMouseMove={handleMove}
-      onMouseLeave={reset}
-      style={{ x: sx, y: sy }}
-      className={className}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay, ease: 'easeOut' }}
     >
-      {children}
-    </motion.div>
-  );
-};
-
-/** TiltCard — 3D perspective tilt that follows the pointer. */
-export const TiltCard: React.FC<{
-  children: React.ReactNode;
-  className?: string;
-  max?: number;
-}> = ({ children, className, max = 10 }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const rx = useMotionValue(0);
-  const ry = useMotionValue(0);
-  const srx = useSpring(rx, { stiffness: 200, damping: 20 });
-  const sry = useSpring(ry, { stiffness: 200, damping: 20 });
-
-  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const px = (e.clientX - rect.left) / rect.width - 0.5;
-    const py = (e.clientY - rect.top) / rect.height - 0.5;
-    ry.set(px * max * 2);
-    rx.set(-py * max * 2);
-  };
-
-  const reset = () => { rx.set(0); ry.set(0); };
-
-  return (
-    <motion.div
-      ref={ref}
-      onMouseMove={handleMove}
-      onMouseLeave={reset}
-      style={{ rotateX: srx, rotateY: sry, transformStyle: 'preserve-3d', transformPerspective: 900 }}
-      className={className}
-    >
-      {children}
+      {as === 'h1' && <h1 className={className}>{text}</h1>}
+      {as === 'h2' && <h2 className={className}>{text}</h2>}
+      {as === 'h3' && <h3 className={className}>{text}</h3>}
     </motion.div>
   );
 };

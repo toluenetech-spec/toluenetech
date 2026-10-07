@@ -1,169 +1,312 @@
 /* ------------------------------------------------------------------ *
- * Toluene Tech — global premium styles
- * Aurora backgrounds, glassmorphism, noise texture, custom scrollbar
+ * Toluene Tech — global styles (professional studio system)
+ * Restrained palette, clear typography, no gimmicks.
  * ------------------------------------------------------------------ */
 
 :root {
-  --tt-accent: 47, 123, 255;      /* electric blue  */
-  --tt-accent-2: 120, 90, 255;    /* violet glow    */
-  --tt-cyan: 34, 211, 238;        /* cyan highlight */
+  --brand:            #0f172a;   /* slate-900 */
+  --brand-accent:     #2563eb;   /* blue-600  */
+  --brand-accent-soft:#eff6ff;   /* blue-50   */
+  --ink:              #0b1220;
+  --ink-2:            #111827;
+  --line:             #e5e7eb;
+  --line-strong:      #d1d5db;
+  --muted:            #6b7280;
+  --muted-soft:       #9ca3af;
+  --bg:               #ffffff;
+  --bg-soft:          #f9fafb;
+  --bg-elevated:      #ffffff;
+  --radius-sm:        6px;
+  --radius-md:        10px;
+  --radius-lg:        14px;
+  --radius-xl:        20px;
+  --shadow-sm:        0 1px 2px rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.06);
+  --shadow-md:        0 4px 12px rgba(15,23,42,0.06), 0 1px 2px rgba(15,23,42,0.04);
+}
+.dark {
+  --brand:            #f8fafc;
+  --brand-accent:     #60a5fa;
+  --brand-accent-soft:#1e293b;
+  --ink:              #f8fafc;
+  --ink-2:            #e2e8f0;
+  --line:             #1f2937;
+  --line-strong:      #374151;
+  --muted:            #9ca3af;
+  --muted-soft:       #6b7280;
+  --bg:               #0b0f1a;
+  --bg-soft:          #0f1524;
+  --bg-elevated:      #111827;
 }
 
-html {
-  scroll-behavior: smooth;
-  -webkit-tap-highlight-color: transparent;
-}
-
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
 body {
-  overflow-x: hidden;
+  margin: 0; overflow-x: hidden; background: var(--bg); color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
+img, svg, video { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
 
-/* Respect users who prefer less motion */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
 }
 
-/* ----------------------------- Scrollbar ---------------------------- */
+/* Scrollbar — neutral */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; background-clip: padding-box; border: 2px solid transparent; }
+.dark ::-webkit-scrollbar-thumb { background: #374151; background-clip: padding-box; border: 2px solid transparent; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #4b5563; background-clip: padding-box; border: 2px solid transparent; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dark ::-webkit-scrollbar-track { background: #05060f; }
-.dark ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(var(--tt-accent), 0.6), rgba(var(--tt-accent-2), 0.5));
-  border-radius: 999px;
-  border: 2px solid #05060f;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(var(--tt-accent), 0.9), rgba(var(--tt-accent-2), 0.8));
-}
+/* Typography */
+.font-display { font-family: "Inter", ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; }
+h1, h2, h3, h4 { color: var(--ink); margin: 0; letter-spacing: -0.02em; }
+p { color: var(--muted); margin: 0; line-height: 1.6; }
 
-/* --------------------------- Noise overlay -------------------------- */
-/* Subtle film grain that sits above backgrounds but below content.    */
-.tt-noise::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
+/* --- Generic surface overrides: strip gimmicks from legacy classes --- */
+/* Noise/grain/aurora/cursor glow — KILL */
+.tt-noise::before, .tt-grain, .tt-cursor-glow, .tt-aurora, .tt-shimmer { display: none !important; }
+.animate-aurora, .animate-float, .animate-float-slow, .animate-pulse-slow, .animate-spin-slow,
+.animate-shimmer { animation: none !important; }
 
-/* Full-page fixed grain layer */
-.tt-grain {
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0.04;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-/* --------------------------- Glassmorphism -------------------------- */
+/* Glass -> clean surface */
 .tt-glass {
-  background: rgba(255, 255, 255, 0.65);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: var(--bg-elevated) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-sm) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
 }
-.dark .tt-glass {
-  background: rgba(11, 16, 36, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
-}
+.tt-glass:hover { border-color: var(--line-strong) !important; box-shadow: var(--shadow-md) !important; }
+.dark .tt-glass { background: var(--bg-elevated) !important; border-color: var(--line) !important; box-shadow: var(--shadow-sm) !important; }
 
-/* Soft glowing border used on premium cards */
-.tt-glow-border {
-  position: relative;
-}
-.tt-glow-border::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(var(--tt-accent), 0.6), transparent 40%, transparent 60%, rgba(var(--tt-accent-2), 0.5));
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-}
-.tt-glow-border:hover::after { opacity: 1; }
+/* Glow border -> none */
+.tt-glow-border { position: relative; }
+.tt-glow-border::after { display: none !important; }
+.tt-glow-border:hover { transform: none !important; }
 
-/* --------------------------- Aurora blobs --------------------------- */
-.tt-aurora {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(90px);
-  pointer-events: none;
-  will-change: transform, opacity;
-}
-
-/* Animated mesh-gradient text */
+/* Gradient text -> plain ink */
 .tt-gradient-text {
-  background-image: linear-gradient(120deg, #4f9bff 0%, #78e0ff 30%, #a78bfa 60%, #4f9bff 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: tt-textshine 6s linear infinite;
-}
-@keyframes tt-textshine {
-  to { background-position: 200% center; }
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: var(--ink) !important;
+  animation: none !important;
 }
 
-/* Shimmer sweep (buttons / skeletons) */
-.tt-shimmer {
-  background: linear-gradient(110deg, transparent 20%, rgba(255,255,255,0.15) 40%, transparent 60%);
-  background-size: 200% 100%;
+/* Gradient buttons -> solid professional buttons */
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500/20"] {
+  background-image: none !important;
+}
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"] {
+  background: var(--ink) !important; color: #fff !important;
+  box-shadow: none !important;
+  border: 1px solid var(--ink) !important;
+  border-radius: var(--radius-md) !important;
+}
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
+  background: var(--ink) !important; color: #fff !important;
+  box-shadow: none !important;
+}
+[class*="bg-brand-500/15"] { background: var(--brand-accent-soft) !important; color: var(--brand-accent) !important; }
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"] {
+  background: #fff !important; color: #0b1220 !important; border-color: #fff !important;
 }
 
-/* Grid backdrop for hero sections */
+/* Inline "rounded-full" circular send icon buttons (AI Lab etc.) */
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: var(--ink) !important; color: #fff !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Progress-bar gradients -> solid accent */
+[class*="h-full rounded-full bg-gradient-to-r"],
+[class*="h-full"][class*="bg-gradient-to-r"] {
+  background: var(--brand-accent) !important;
+}
+
+/* shadow-glow family -> neutral */
+.shadow-glow, .shadow-glow-lg, .shadow-card { box-shadow: var(--shadow-md) !important; }
+
+/* Grid backdrop toned down (used on hero) */
 .tt-grid-bg {
+  position: absolute; inset: 0; pointer-events: none;
   background-image:
-    linear-gradient(rgba(var(--tt-accent), 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(var(--tt-accent), 0.06) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, #000 40%, transparent 100%);
+    linear-gradient(rgba(15,23,42,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15,23,42,0.04) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 0%, #000 40%, transparent 100%);
+}
+.dark .tt-grid-bg {
+  background-image:
+    linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
 }
 
-/* Marquee helper */
-.tt-marquee-track {
-  display: flex;
-  width: max-content;
-  animation: marquee 40s linear infinite;
+/* ------------------------- Buttons ------------------------- */
+.tt-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  padding: 0.7rem 1.2rem; border-radius: var(--radius-md);
+  font-size: 0.9rem; font-weight: 600; line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  cursor: pointer; border: 1px solid transparent; white-space: nowrap;
 }
-.tt-marquee:hover .tt-marquee-track {
-  animation-play-state: paused;
-}
-@keyframes marquee {
-  from { transform: translateX(0); }
-  to   { transform: translateX(-50%); }
+/* ============================================================
+   BUTTONS — rock-solid visible-forever rules
+   Light mode: black bg, white text → hover stays black
+   Dark mode:  white bg, black text → hover inverts to black bg, white text
+   These selectors are deliberately !important so they beat any
+   legacy gradient classes scattered through older JSX.
+   ============================================================ */
+.tt-btn,
+button[class*="bg-gradient"],
+a[class*="bg-gradient"],
+a[class*="tt-btn"],
+button[class*="tt-btn"] {
+  border-radius: var(--radius-md) !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
 }
 
-/* Custom cursor glow follows the pointer (set via CSS vars in JS) */
-.tt-cursor-glow {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 480px;
-  height: 480px;
-  border-radius: 9999px;
-  pointer-events: none;
-  z-index: 30;
-  transform: translate(-50%, -50%);
-  background: radial-gradient(circle, rgba(var(--tt-accent), 0.12) 0%, transparent 65%);
-  transition: opacity 0.3s ease;
+/* --- Primary: filled --- */
+.tt-btn-primary,
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+a[class*="from-brand-600 to-brand-400"],
+button[class*="from-brand-600 to-brand-400"] {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border: 1px solid #0b1220 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
 }
+.tt-btn-primary:hover,
+[class*="bg-gradient-to-r from-brand-600 to-brand-400"]:hover,
+[class*="bg-gradient-to-br from-brand-500 to-brand-400"]:hover,
+a[class*="from-brand-600 to-brand-400"]:hover,
+button[class*="from-brand-600 to-brand-400"]:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+
+/* --- Dark mode primary: white bg + black text; hover inverts --- */
+.dark .tt-btn-primary,
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"],
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"],
+.dark a[class*="from-brand-600 to-brand-400"],
+.dark button[class*="from-brand-600 to-brand-400"] {
+  background: #fff !important;
+  color: #0b1220 !important;
+  border-color: #fff !important;
+}
+.dark .tt-btn-primary:hover,
+.dark [class*="bg-gradient-to-r from-brand-600 to-brand-400"]:hover,
+.dark [class*="bg-gradient-to-br from-brand-500 to-brand-400"]:hover,
+.dark a[class*="from-brand-600 to-brand-400"]:hover,
+.dark button[class*="from-brand-600 to-brand-400"]:hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border-color: #0b1220 !important;
+}
+
+/* --- Ghost / secondary --- */
+.tt-btn-ghost {
+  background: transparent !important;
+  color: #0b1220 !important;
+  border: 1px solid #0b1220 !important;
+}
+.tt-btn-ghost:hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+}
+.dark .tt-btn-ghost {
+  background: transparent !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+}
+.dark .tt-btn-ghost:hover {
+  background: #fff !important;
+  color: #0b1220 !important;
+}
+
+/* --- Icon-only circular send buttons (AI Lab) --- */
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border: 1px solid #0b1220 !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+}
+button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]):hover {
+  background: #000 !important;
+}
+.dark button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]) {
+  background: #fff !important;
+  color: #0b1220 !important;
+  border-color: #fff !important;
+}
+.dark button[class*="bg-gradient-to-r"]:not([class*="px-"]):not([class*="py-"]):hover {
+  background: #0b1220 !important;
+  color: #fff !important;
+  border-color: #0b1220 !important;
+}
+
+/* --- Accent (blue) --- */
+.tt-btn-accent { background: var(--brand-accent) !important; color: #fff !important; border-color: var(--brand-accent) !important; }
+.tt-btn-accent:hover { filter: brightness(0.95); }
+
+/* ------------------------- Pills ------------------------- */
+.tt-pill {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.25rem 0.6rem; border-radius: 999px;
+  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.02em;
+  background: var(--bg-soft); border: 1px solid var(--line); color: var(--muted);
+}
+.tt-pill-accent { background: var(--brand-accent-soft); border-color: transparent; color: var(--brand-accent); }
+
+/* Forms */
+.tt-input, .tt-textarea {
+  width: 100%; padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-md);
+  background: var(--bg); color: var(--ink); font-size: 0.9rem; font-family: inherit;
+  outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tt-input:focus, .tt-textarea:focus { border-color: var(--brand-accent); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+.tt-label { font-size: 0.8rem; font-weight: 600; color: var(--ink); margin-bottom: 0.3rem; display: block; }
+
+/* Page hero */
+.tt-page-hero { padding: 4rem 0 3rem; border-bottom: 1px solid var(--line); background: var(--bg-soft); }
+.tt-page-hero h1 { font-size: clamp(2rem, 4vw, 3rem); font-weight: 700; }
+.tt-page-hero p { margin-top: 0.8rem; font-size: 1.05rem; max-width: 46rem; }
+
+/* Remove silly giant rounded-3xl on cards */
+[class*="rounded-3xl"].tt-glass, [class*="rounded-[2rem]"].tt-glass, [class*="rounded-[2rem]"] {
+  border-radius: var(--radius-lg) !important;
+}
+
+/* Remove translate-y hovers */
+[class*="hover:-translate-y"]:hover { transform: none !important; }
+
+/* Custom selection */
+::selection { background: var(--brand-accent); color: #fff; }
+
+/* Marquee */
+@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.tt-marquee-track { display: flex; width: max-content; animation: marquee 40s linear infinite; }
+.tt-marquee:hover .tt-marquee-track { animation-play-state: paused; }
