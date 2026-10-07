@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Lock, Loader2 } from 'lucide-react';
 
 interface Props { onLogin: (pw: string) => boolean; }
 
 export default function Login({ onLogin }: Props) {
+  const nav = useNavigate();
   const [pw, setPw] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -14,7 +16,9 @@ export default function Login({ onLogin }: Props) {
     setErr(null);
     setTimeout(() => {
       const ok = onLogin(pw);
-      if (!ok) { setErr('Incorrect password. Please try again.'); setBusy(false); }
+      if (!ok) { setErr('Incorrect password. Please try again.'); setBusy(false); return; }
+      // Push to dashboard so post-login state change actually navigates
+      nav('/admin/dashboard', { replace: true });
     }, 250);
   };
   return (

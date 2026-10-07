@@ -34,10 +34,6 @@ import Portal from './pages/portal/Portal';
 import PageLoader from './components/PageLoader';
 import ToleshWidget from './components/ToleshWidget';
 
-// The admin shell is mounted OUTSIDE the public-page <Routes> so that its
-// internal <Routes> can use absolute paths (/admin/dashboard, /admin/leads, ...)
-// without being nested under a parent "/admin/*" route (which would make the
-// inner router see only "/dashboard" and mismatch, producing a redirect loop).
 const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <>
     {children}
@@ -65,11 +61,19 @@ const IntroLoader: React.FC = () => {
   return <AnimatePresence>{!done && <PageLoader />}</AnimatePresence>;
 };
 
-const PublicRoutes: React.FC = () => {
+// Public + portal routes use the standard nested <Routes>. Admin uses a
+// splat ("*") route because the admin shell owns its own internal <Routes>
+// with absolute /admin/... paths — nesting those under a parent "/admin/*"
+// without consuming the "/admin" prefix in the child would otherwise produce
+// a mismatch/redirect loop on every navigation. The splat ensures the
+// parent router hands the full pathname to Admin unchanged.
+const SiteRoutes: React.FC = () => {
   const location = useLocation();
+  const isAdmin = location.pathname.startsWith('/admin');
+  const isPortal = location.pathname.startsWith('/portal');
   return (
-    <AnimatePresence mode="wait">
-      <React.Fragment key={location.pathname}>
+    <>
+      <AnimatePresence mode="wait">
         <Routes location={location}>
           <Route path="/" element={<Layout><PageTransition><Home /></PageTransition></Layout>} />
           <Route path="/about" element={<Layout><PageTransition><About /></PageTransition></Layout>} />
@@ -93,30 +97,17 @@ const PublicRoutes: React.FC = () => {
           <Route path="/downloads" element={<Layout><PageTransition><Downloads /></PageTransition></Layout>} />
           <Route path="/contact" element={<Layout><PageTransition><Contact /></PageTransition></Layout>} />
 
+          {/* Admin (catch-all splat so inner routes see full /admin/... paths) */}
+          <Route path="/admin/*" element={<Admin />} />
+
           {/* Client Portal */}
           <Route path="/portal" element={<PortalLayout><PortalLogin /></PortalLayout>} />
           <Route path="/portal/dashboard" element={<PortalLayout><Portal /></PortalLayout>} />
 
-          {/* Public 404 (admin is handled separately below so it never hits this) */}
           <Route path="*" element={<Layout><PageTransition><NotFound /></PageTransition></Layout>} />
         </Routes>
-        {/* Public Tolesh widget — not shown on portal or admin */}
-        {!location.pathname.startsWith('/portal') && <ToleshWidget mode="public" />}
-      </React.Fragment>
-    </AnimatePresence>
-  );
-};
-
-const AppRouter: React.FC = () => {
-  const location = useLocation();
-  const isAdminRoute = location.pathname.startsWith('/admin');
-  // When on /admin* render the admin shell (which owns its own <Routes>).
-  // Otherwise render the public site <Routes>. This lets admin's internal
-  // routes be absolute paths (/admin/dashboard, /admin/ai/chat/:id, ...)
-  // which matches the Sidebar links and AIChat navigation.
-  return (
-    <>
-      {isAdminRoute ? <Admin /> : <PublicRoutes />}
+      </AnimatePresence>
+      {!isAdmin && !isPortal && <ToleshWidget mode="public" />}
     </>
   );
 };
@@ -128,7 +119,7 @@ const App: React.FC = () => (
         <ClientAuthProvider>
           <Router>
             <IntroLoader />
-            <AppRouter />
+            <SiteRoutes />
           </Router>
         </ClientAuthProvider>
       </DataProvider>

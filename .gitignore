@@ -1,7 +1,7 @@
-node_modules/
-dist/
-.env.local
-.DS_Store
 *.log
+.DS_Store
+.env.local
 .vite/
+dist/
+node_modules/
 server/.dev.vars

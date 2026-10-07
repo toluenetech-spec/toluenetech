@@ -87,6 +87,7 @@ function TopBar({ onToggleMobile, onCollapse, collapsed }: { onToggleMobile: () 
 function Shell({ onLogout }: { onLogout: () => void }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
   // Remember collapsed state
   useEffect(() => {
     try { const v = localStorage.getItem('tt_admin_collapsed'); if (v === '1') setCollapsed(true); } catch {}
@@ -107,41 +108,40 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         <div className="adm-content">
           <div className="adm-content-inner">
             <AnimatePresence mode="wait">
-              <Routes>
-                <Route path="/admin" element={<Navigate to="/admin/dashboard" replace/>}/>
-                <Route path="/admin/" element={<Navigate to="/admin/dashboard" replace/>}/>
-                <Route path="/admin/dashboard" element={<PageWrap><Dashboard/></PageWrap>}/>
-                <Route path="/admin/leads" element={<PageWrap><LeadsSection/></PageWrap>}/>
-                <Route path="/admin/leads/:id" element={<PageWrap><LeadsSection/></PageWrap>}/>
-                <Route path="/admin/clients" element={<PageWrap><ClientsSection/></PageWrap>}/>
-                <Route path="/admin/jobs" element={<PageWrap><JobsSection/></PageWrap>}/>
-                <Route path="/admin/messages" element={<PageWrap><ComingSoon title="Messages" subtitle="Project messaging and inbox will be managed here when the client portal rollout is complete." icon="MessageSquare"/></PageWrap>}/>
-                <Route path="/admin/files" element={<PageWrap><MediaSection tab="files"/></PageWrap>}/>
-                <Route path="/admin/invoices" element={<PageWrap><ComingSoon title="Invoices" subtitle="Invoice management will be available once payment integrations are live." icon="Receipt"/></PageWrap>}/>
-                <Route path="/admin/services" element={<PageWrap><ServicesSection/></PageWrap>}/>
-                <Route path="/admin/solutions" element={<PageWrap><SolutionsSection/></PageWrap>}/>
-                <Route path="/admin/portfolio" element={<PageWrap><PortfolioSection/></PageWrap>}/>
-                <Route path="/admin/testimonials" element={<PageWrap><TestimonialsSection/></PageWrap>}/>
-                <Route path="/admin/faqs" element={<PageWrap><FAQsSection/></PageWrap>}/>
-                <Route path="/admin/insights" element={<PageWrap><InsightsSection/></PageWrap>}/>
-                <Route path="/admin/products" element={<PageWrap><ProductsSection/></PageWrap>}/>
-                <Route path="/admin/labs" element={<PageWrap><ComingSoon title="AI Lab Content" subtitle="Manage the Planner, Advisor and Idea Analyzer context data." icon="FlaskConical"/></PageWrap>}/>
-                <Route path="/admin/pricing" element={<PageWrap><PricingSection/></PageWrap>}/>
-                <Route path="/admin/tools" element={<PageWrap><ToolsSection/></PageWrap>}/>
-                <Route path="/admin/media" element={<PageWrap><MediaSection/></PageWrap>}/>
-                <Route path="/admin/ai/chat" element={<AIChatSection/>}/>
-                <Route path="/admin/ai/chat/:id" element={<AIChatSection/>}/>
-                <Route path="/admin/ai/models" element={<PageWrap><AIModelControl/></PageWrap>}/>
-                <Route path="/admin/ai/health" element={<PageWrap><AIHealth/></PageWrap>}/>
-                <Route path="/admin/ai/conversations" element={<PageWrap><AIConversations/></PageWrap>}/>
-                <Route path="/admin/settings/general" element={<PageWrap><SettingsGeneral/></PageWrap>}/>
-                <Route path="/admin/settings/social" element={<PageWrap><SettingsSocial/></PageWrap>}/>
-                <Route path="/admin/settings/availability" element={<PageWrap><SettingsAvailability/></PageWrap>}/>
-                <Route path="/admin/settings/notifications" element={<PageWrap><SettingsNotifications/></PageWrap>}/>
-                <Route path="/admin/settings/brand" element={<PageWrap><SettingsBrand/></PageWrap>}/>
-                <Route path="/admin/settings/founder" element={<PageWrap><SettingsFounder/></PageWrap>}/>
-                <Route path="/admin/settings/seo" element={<PageWrap><SettingsSEO/></PageWrap>}/>
-                <Route path="/admin/settings/security" element={<PageWrap><SettingsSecurity/></PageWrap>}/>
+              <Routes location={location}>
+                <Route index element={<Navigate to="/admin/dashboard" replace/>}/>
+                <Route path="dashboard" element={<PageWrap><Dashboard/></PageWrap>}/>
+                <Route path="leads" element={<PageWrap><LeadsSection/></PageWrap>}/>
+                <Route path="leads/:id" element={<PageWrap><LeadsSection/></PageWrap>}/>
+                <Route path="clients" element={<PageWrap><ClientsSection/></PageWrap>}/>
+                <Route path="jobs" element={<PageWrap><JobsSection/></PageWrap>}/>
+                <Route path="messages" element={<PageWrap><ComingSoon title="Messages" subtitle="Project messaging and inbox will be managed here when the client portal rollout is complete." icon="MessageSquare"/></PageWrap>}/>
+                <Route path="files" element={<PageWrap><MediaSection tab="files"/></PageWrap>}/>
+                <Route path="invoices" element={<PageWrap><ComingSoon title="Invoices" subtitle="Invoice management will be available once payment integrations are live." icon="Receipt"/></PageWrap>}/>
+                <Route path="services" element={<PageWrap><ServicesSection/></PageWrap>}/>
+                <Route path="solutions" element={<PageWrap><SolutionsSection/></PageWrap>}/>
+                <Route path="portfolio" element={<PageWrap><PortfolioSection/></PageWrap>}/>
+                <Route path="testimonials" element={<PageWrap><TestimonialsSection/></PageWrap>}/>
+                <Route path="faqs" element={<PageWrap><FAQsSection/></PageWrap>}/>
+                <Route path="insights" element={<PageWrap><InsightsSection/></PageWrap>}/>
+                <Route path="products" element={<PageWrap><ProductsSection/></PageWrap>}/>
+                <Route path="labs" element={<PageWrap><ComingSoon title="AI Lab Content" subtitle="Manage the Planner, Advisor and Idea Analyzer context data." icon="FlaskConical"/></PageWrap>}/>
+                <Route path="pricing" element={<PageWrap><PricingSection/></PageWrap>}/>
+                <Route path="tools" element={<PageWrap><ToolsSection/></PageWrap>}/>
+                <Route path="media" element={<PageWrap><MediaSection/></PageWrap>}/>
+                <Route path="ai/chat" element={<AIChatSection/>}/>
+                <Route path="ai/chat/:id" element={<AIChatSection/>}/>
+                <Route path="ai/models" element={<PageWrap><AIModelControl/></PageWrap>}/>
+                <Route path="ai/health" element={<PageWrap><AIHealth/></PageWrap>}/>
+                <Route path="ai/conversations" element={<PageWrap><AIConversations/></PageWrap>}/>
+                <Route path="settings/general" element={<PageWrap><SettingsGeneral/></PageWrap>}/>
+                <Route path="settings/social" element={<PageWrap><SettingsSocial/></PageWrap>}/>
+                <Route path="settings/availability" element={<PageWrap><SettingsAvailability/></PageWrap>}/>
+                <Route path="settings/notifications" element={<PageWrap><SettingsNotifications/></PageWrap>}/>
+                <Route path="settings/brand" element={<PageWrap><SettingsBrand/></PageWrap>}/>
+                <Route path="settings/founder" element={<PageWrap><SettingsFounder/></PageWrap>}/>
+                <Route path="settings/seo" element={<PageWrap><SettingsSEO/></PageWrap>}/>
+                <Route path="settings/security" element={<PageWrap><SettingsSecurity/></PageWrap>}/>
                 <Route path="*" element={<Navigate to="/admin/dashboard" replace/>}/>
               </Routes>
             </AnimatePresence>
@@ -168,8 +168,43 @@ export default function AdminShell({ onLogout }: { onLogout: () => void }) {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <Shell onLogout={onLogout}/>
+        <ErrorBoundary>
+          <Shell onLogout={onLogout}/>
+        </ErrorBoundary>
       </ConfirmProvider>
     </ToastProvider>
   );
+}
+
+function ErrorBoundary({ children }: { children: React.ReactNode }) {
+  const [err, setErr] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const onErr = (e: ErrorEvent) => {
+      const msg = e.error?.stack || e.error?.message || `${e.message} @ ${e.filename}:${e.lineno}`;
+      setErr(prev => prev || msg);
+      console.error('[Admin runtime error]', e.error || e);
+    };
+    const onRej = (e: PromiseRejectionEvent) => {
+      const msg = (e.reason as any)?.stack || (e.reason as any)?.message || String(e.reason);
+      setErr(prev => prev || msg);
+      console.error('[Admin unhandled rejection]', e.reason);
+    };
+    window.addEventListener('error', onErr);
+    window.addEventListener('unhandledrejection', onRej);
+    return () => {
+      window.removeEventListener('error', onErr);
+      window.removeEventListener('unhandledrejection', onRej);
+    };
+  }, []);
+  if (err) {
+    return (
+      <div style={{ padding: '2rem', maxWidth: 820, margin: '0 auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#222', whiteSpace: 'pre-wrap' }}>
+        <div style={{ color: '#dc2626', fontWeight: 700, fontSize: 15, marginBottom: '0.75rem' }}>Admin crashed</div>
+        <div style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '1rem', overflow: 'auto' }}>{err}</div>
+        <div style={{ marginTop: '1rem', fontSize: 12, color: '#64748b' }}>Open the browser console for the full stack. Clicking below will clear the admin session and reload.</div>
+        <button style={{ marginTop: '1rem', padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', background: '#fff' }} onClick={() => { sessionStorage.clear(); location.hash = '#/admin'; location.reload(); }}>Clear session and reload</button>
+      </div>
+    );
+  }
+  return <>{children}</>;
 }
