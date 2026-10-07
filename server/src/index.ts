@@ -7,6 +7,7 @@ import cms from './routes/cms';
 import assistant from './routes/assistant';
 import assistantAdmin from './routes/assistant-admin';
 import assistantClient from './routes/assistant-client';
+import aiLab from './routes/ai-lab';
 import leads from './routes/leads';
 import media from './routes/media';
 
@@ -26,6 +27,7 @@ app.route('/cms', cms);
 app.route('/assistant', assistant);
 app.route('/assistant/admin', assistantAdmin);
 app.route('/assistant/client', assistantClient);
+app.route('/ai-lab', aiLab);
 app.route('/leads', leads);
 app.route('/media', media);
 

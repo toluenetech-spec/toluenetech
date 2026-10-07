@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
-import { AIConfigError, getAI } from '../ai';
+import { AIConfigError, AIError, getAI } from '../ai';
 import { PUBLIC_SYSTEM_PROMPT } from '../ai/agents/system-prompts';
 import { PUBLIC_TOOLS, buildHandlers } from '../ai/tools';
 import { basePublicContext, retrievePublic } from '../retrieval';
@@ -23,6 +23,20 @@ function genAnonId(): string {
   return b.reduce((s, x) => s + x.toString(16).padStart(2, '0'), '');
 }
 
+/** Heuristic: short greetings / yes-no answers → fast tier (no tools needed). */
+function classifyTier(msg: string): 'fast' | 'standard' {
+  const trimmed = msg.trim();
+  if (trimmed.length < 12) return 'fast';
+  const simple = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|good|great|sure|bye|goodbye|yo|sup)([.!?,]|\s|$)/i.test(trimmed);
+  // No tool needed — direct factual answer can come from the fast model.
+  const directAnswer = /^what is \d+\s*[+\-*/x×÷]\s*\d+[?.!]?$/i.test(trimmed) ||
+                       /^tell me a joke/i.test(trimmed) ||
+                       /^who are you/i.test(trimmed) ||
+                       /^(hi|hello|hey)\s*(!|\.|$)/i.test(trimmed);
+  if ((simple && trimmed.length < 50) || directAnswer) return 'fast';
+  return 'standard';
+}
+
 app.get('/session', async (c) => {
   let anonId = c.req.header('X-Anon-Id');
   if (!anonId || anonId.length > 64) anonId = genAnonId();
@@ -31,9 +45,9 @@ app.get('/session', async (c) => {
 
 app.post('/chat', async (c) => {
   const env = c.env as Env;
-  const ip = clientIp(c.req.raw, env as unknown as Record<string, string | undefined>);
-  const rl = rateLimit(`chat:${ip}`, { windowMs: 60_000, max: 20 });
-  if (!rl.ok) return c.json({ error: 'Too many requests', retryAfter: rl.retryAfter }, 429);
+  const ip = clientIp(c.req.raw);
+  const rl = rateLimit(`chat:${ip}`, { windowMs: 60_000, max: 25 });
+  if (!rl.ok) return c.json({ error: 'Too many requests — please slow down a moment.' }, 429);
 
   let body: { message?: unknown; anonId?: unknown; name?: unknown; email?: unknown };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -46,32 +60,38 @@ app.post('/chat', async (c) => {
   const email = sanitize(body.email, 160);
 
   const db = getDb(env);
-
-  // Session
-  let [session] = await db.select().from(schema.assistantSessions).where(eq(schema.assistantSessions.anonId, anonId)).limit(1);
-  if (!session) {
-    [session] = await db.insert(schema.assistantSessions).values({ anonId, name, email }).returning();
-  } else if ((name && session.name !== name) || (email && session.email !== email)) {
-    await db.update(schema.assistantSessions)
-      .set({ name: name ?? session.name, email: email ?? session.email, lastMessageAt: new Date() })
-      .where(eq(schema.assistantSessions.id, session.id));
+  let session;
+  try {
+    [session] = await db.select().from(schema.assistantSessions).where(eq(schema.assistantSessions.anonId, anonId)).limit(1);
+    if (!session) {
+      [session] = await db.insert(schema.assistantSessions).values({ anonId, name: name ?? null, email: email ?? null }).returning();
+    } else if ((name && session.name !== name) || (email && session.email !== email)) {
+      await db.update(schema.assistantSessions)
+        .set({ name: name ?? session.name, email: email ?? session.email, lastMessageAt: new Date() })
+        .where(eq(schema.assistantSessions.id, session.id));
+    }
+    await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'user', content: message });
+  } catch (dbErr) {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), ai: 'public', event: 'db_error', phase: 'session', cause: String((dbErr as Error).message).slice(0, 400) }));
+    return c.json({ error: 'A database error occurred — please try again.' }, 500);
   }
-  await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'user', content: message });
 
-  // History
   const historyRows = await db.select({ role: schema.assistantMessages.role, content: schema.assistantMessages.content })
     .from(schema.assistantMessages)
     .where(eq(schema.assistantMessages.sessionId, session.id))
     .orderBy(desc(schema.assistantMessages.createdAt)).limit(HISTORY_LIMIT);
   historyRows.reverse();
 
-  // Compact base public context (services/pricing/FAQ summary)
-  const baseCtx = await basePublicContext(db);
+  let baseCtx = '';
+  let retrieved: any[] = [];
+  try {
+    baseCtx = await basePublicContext(db);
+    retrieved = await retrievePublic(db, message, { limit: 4 });
+  } catch (dbErr) {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), ai: 'public', event: 'db_error', phase: 'retrieval', cause: String((dbErr as Error).message).slice(0, 400) }));
+    // Continue with empty context rather than failing the whole chat
+  }
 
-  // Optional retrieval: pull documents relevant to THIS query so the model
-  // doesn't have to search blindly. We feed this as a single user-prefixed
-  // context block, then let the model decide if it needs more via tools.
-  const retrieved = await retrievePublic(db, message, { limit: 4 });
   const retrievalText = retrieved.length
     ? `Potentially relevant information from the website (for this specific question):\n${retrieved.map(d => `- [${d.kind}] ${d.title}${d.url ? ` (${d.url})` : ''}: ${d.snippet}`).join('\n')}\n(Use search_* tools if you need more detail.)`
     : '';
@@ -80,31 +100,34 @@ app.post('/chat', async (c) => {
 
   const messages = [
     { role: 'system' as const, content: systemContent },
-    ...historyRows.slice(0, -1).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })), // all but the current user message
+    ...historyRows.slice(0, -1).map(h => ({ role: h.role as 'user' | 'assistant', content: h.content })),
   ];
   if (retrievalText) messages.push({ role: 'user' as const, content: retrievalText });
   messages.push({ role: 'user' as const, content: message });
 
-  // Decide tier: simple greetings/FAQs → fast; anything that might need
-  // qualification or tool-use → standard (MiniMax supports tools).
-  const simple = /^(hi|hello|hey|thanks|thank you|ok|okay|yes|no|good|great|sure)([.!?,]|$)/i.test(message.trim()) && message.length < 40;
-  const tier: 'fast' | 'standard' = (simple || message.length < 25) ? 'fast' : 'standard';
+  const tier = classifyTier(message);
+  // Fast tier: still allow tools? The fast model supports tools on Dahl, but for
+  // the fastest greetings we skip them to reduce latency. For anything over the
+  // simple threshold we always allow tools so we can answer service/portfolio/pricing
+  // questions with real data.
+  const tools = tier === 'fast' ? [] : PUBLIC_TOOLS;
 
   let reply: string;
   let model = '';
   let usedFallback = false;
   let toolCalls: any[] = [];
+  let userError: string | null = null;
   try {
     const ai = getAI(env);
-    const tools = tier === 'fast' ? [] : PUBLIC_TOOLS; // no tool use on the fast model (it doesn't support tools reliably)
     const result = await ai.run(
       {
         messages,
         tier,
         tools,
         maxTurns: 6,
-        maxTokens: tier === 'fast' ? 250 : 700,
-        timeoutMs: tier === 'fast' ? 10_000 : 25_000,
+        maxTokens: tier === 'fast' ? 300 : 800,
+        timeoutMs: tier === 'fast' ? 12_000 : 30_000,
+        label: 'public',
       },
       buildHandlers({ kind: 'public', auth: null, db, env, ip, session: { id: session.id, anonId, capturedLeadId: session.capturedLeadId, intent: session.intent } }),
       { kind: 'public', auth: null, db, env, ip, session: { id: session.id, anonId, capturedLeadId: session.capturedLeadId, intent: session.intent } },
@@ -115,20 +138,45 @@ app.post('/chat', async (c) => {
     toolCalls = result.toolCalls;
   } catch (e) {
     if (e instanceof AIConfigError) {
-      reply = "Tolesh is still being connected to the AI provider — in the meantime, please start a project at /start-project or email hello@toluenetech.com.";
+      reply = "Tolesh is still being connected — in the meantime please use /start-project or email hello@toluenetech.com.";
+      userError = 'config';
+    } else if (e instanceof AIError) {
+      reply = friendlyReplyFor(e.info.code);
+      userError = e.info.code;
     } else {
-      reply = "I'm having trouble reaching our models right now. Please try again in a moment, or go to /start-project to send us a direct message.";
+      reply = friendlyReplyFor('MODEL_ERROR');
+      userError = 'MODEL_ERROR';
     }
   }
 
-  await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
-  await db.update(schema.assistantSessions).set({ lastMessageAt: new Date() }).where(eq(schema.assistantSessions.id, session.id));
+  try {
+    await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
+    await db.update(schema.assistantSessions).set({ lastMessageAt: new Date() }).where(eq(schema.assistantSessions.id, session.id));
+  } catch { /* non-fatal */ }
 
   return c.json({
-    reply, anonId,
-    model, usedFallback,
+    reply, anonId, model, usedFallback, error: userError ?? undefined,
     toolCalls: toolCalls.map(t => ({ name: t.name, ok: t.ok })),
   });
 });
+
+function friendlyReplyFor(code: string): string {
+  switch (code) {
+    case 'TIMEOUT':
+      return "That took longer than expected. Could you try again with a shorter question, or visit /start-project to message us directly?";
+    case 'DATABASE_ERROR':
+      return "I hit a problem looking up that information. Our team has been notified — please try again shortly, or browse the Services page directly.";
+    case 'TOOL_ERROR':
+      return "I couldn't pull the information you asked for right now. Please try again, or browse the Services/Portfolio pages directly.";
+    case 'CONFIG_ERROR':
+      return "Tolesh is still being set up — please visit /start-project or email hello@toluenetech.com in the meantime.";
+    case 'EMPTY_MODEL_RESPONSE':
+      return "I didn't get a complete answer back from our model. Please try again.";
+    case 'MODEL_ERROR':
+    case 'FALLBACK_ERROR':
+    default:
+      return "I'm having trouble reaching our models right now. Please try again in a moment, or go to /start-project to send us a direct message.";
+  }
+}
 
 export default app;

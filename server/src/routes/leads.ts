@@ -38,7 +38,7 @@ async function nextLeadRef(db: ReturnType<typeof getDb>): Promise<string> {
 /** Public lead submission from /start-project or /contact or assistant. */
 app.post('/', async (c) => {
   const env = c.env as Env;
-  const ip = clientIp(c.req.raw, env as unknown as Record<string, string | undefined>);
+  const ip = clientIp(c.req.raw);
   const rl = rateLimit(`lead:${ip}`, { windowMs: 60_000, max: 5 });
   if (!rl.ok) return c.json({ error: 'Too many submissions. Try again in a moment.' }, 429);
 

@@ -46,6 +46,7 @@ function tokens(q: string): string[] {
 }
 
 export const searchServicesHandler: ToolHandler = async (args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const q = String(args.query ?? '').slice(0, 120);
   const tk = tokens(q); if (!tk.length) return { result: [] };
@@ -63,6 +64,7 @@ export const searchServicesHandler: ToolHandler = async (args, ctx) => {
 };
 
 export const searchProjectsHandler: ToolHandler = async (args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const q = String(args.query ?? '').slice(0, 120);
   const tk = tokens(q); if (!tk.length) return { result: [] };
@@ -90,6 +92,7 @@ export const searchProjectsHandler: ToolHandler = async (args, ctx) => {
 };
 
 export const searchFaqsHandler: ToolHandler = async (args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const q = String(args.query ?? '').slice(0, 120);
   const tk = tokens(q); if (!tk.length) return { result: [] };
@@ -103,6 +106,7 @@ export const searchFaqsHandler: ToolHandler = async (args, ctx) => {
 };
 
 export const getPricingHandler: ToolHandler = async (_args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select().from(schema.pricingPlans).where(eq(schema.pricingPlans.isPublished, true)).orderBy(schema.pricingPlans.order);
   return { result: rows.map((p: any) => ({
@@ -113,6 +117,7 @@ export const getPricingHandler: ToolHandler = async (_args, ctx) => {
 };
 
 export const listServicesHandler: ToolHandler = async (_args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select({ title: schema.services.title, short: schema.services.shortDescription, slug: schema.services.slug })
     .from(schema.services).where(eq(schema.services.isPublished, true)).orderBy(schema.services.order);
@@ -143,6 +148,7 @@ export const toolCreateLead: ToolSpec = {
 };
 
 export const createLeadHandler: ToolHandler = async (args, ctx) => {
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rl = rateLimit(`lead-create:${ctx.ip}`, { windowMs: 60_000, max: 3 });
   if (!rl.ok) return { result: { error: 'Rate limited — try again in a moment.' } };
@@ -225,6 +231,7 @@ export const toolAdminSearchProjects: ToolSpec = {
 
 export const adminListLeadsHandler: ToolHandler = async (args, ctx) => {
   if (ctx.kind !== 'admin') return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const status = String(args.status ?? 'ALL');
   const limit = Math.min(20, Math.max(1, Number(args.limit) || 10));
@@ -241,6 +248,7 @@ export const adminListLeadsHandler: ToolHandler = async (args, ctx) => {
 export const adminGetLeadHandler: ToolHandler = async (args, ctx) => {
   if (ctx.kind !== 'admin') return { result: { error: 'Unauthorized' } };
   const ref = String(args.ref ?? '').trim().toUpperCase();
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const [l] = await db.select().from(schema.leads).where(eq(schema.leads.ref, ref)).limit(1);
   if (!l) return { result: { error: `No lead with ref ${ref}.` } };
@@ -253,6 +261,7 @@ export const adminGetLeadHandler: ToolHandler = async (args, ctx) => {
 };
 export const adminStatsHandler: ToolHandler = async (_args, ctx) => {
   if (ctx.kind !== 'admin') return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const byStatus = await db.select({ status: schema.leads.status, c: sql<number>`count(*)::int` }).from(schema.leads).groupBy(schema.leads.status);
   const [{ total }] = await db.select({ total: sql<number>`count(*)::int` }).from(schema.leads);
@@ -262,6 +271,7 @@ export const adminStatsHandler: ToolHandler = async (_args, ctx) => {
 export const adminDraftReplyHandler: ToolHandler = async (args, ctx) => {
   if (ctx.kind !== 'admin') return { result: { error: 'Unauthorized' } };
   const ref = String(args.ref ?? '').trim().toUpperCase();
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const [l] = await db.select().from(schema.leads).where(eq(schema.leads.ref, ref)).limit(1);
   if (!l) return { result: { error: `Lead ${ref} not found.` } };
@@ -278,6 +288,7 @@ export const adminSearchProjectsHandler: ToolHandler = async (args, ctx) => {
   const q = String(args.query ?? '').slice(0, 120);
   const tk = tokens(q); if (!tk.length) return { result: [] };
   const likes = tk.map(t => `%${t}%`);
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select({ slug: schema.projects.slug, title: schema.projects.title, isPublished: schema.projects.isPublished })
     .from(schema.projects)
@@ -298,6 +309,7 @@ function clientIdFrom(ctx: ToolContext): string | null { return ctx.auth?.client
 export const clientProjectsHandler: ToolHandler = async (_args, ctx) => {
   if (ctx.kind !== 'client') return { result: { error: 'Unauthorized' } };
   const cid = clientIdFrom(ctx); if (!cid) return { result: { error: 'No client identity' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.clientId, cid));
   return { result: rows.map((r: any) => ({
@@ -309,6 +321,7 @@ export const clientProjectsHandler: ToolHandler = async (_args, ctx) => {
 async function authProject(ctx: ToolContext, projectId: string) {
   if (ctx.kind !== 'client') return { error: 'Unauthorized' };
   const cid = clientIdFrom(ctx); if (!cid) return { error: 'No client identity' };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const [p] = await db.select().from(schema.clientProjects).where(and(eq(schema.clientProjects.id, projectId), eq(schema.clientProjects.clientId, cid))).limit(1);
   if (!p) return { error: 'Project not found or not accessible.' };
@@ -317,6 +330,7 @@ async function authProject(ctx: ToolContext, projectId: string) {
 export const clientMilestonesHandler: ToolHandler = async (args, ctx) => {
   const r = await authProject(ctx, String(args.projectId ?? ''));
   if ('error' in r) return { result: r };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select().from(schema.milestones).where(eq(schema.milestones.projectId, (r as any).project.id)).orderBy(schema.milestones.order);
   return { result: { project: (r as any).project.title, milestones: rows.map((m: any) => ({
@@ -328,6 +342,7 @@ export const clientMilestonesHandler: ToolHandler = async (args, ctx) => {
 export const clientMessagesHandler: ToolHandler = async (args, ctx) => {
   const r = await authProject(ctx, String(args.projectId ?? ''));
   if ('error' in r) return { result: r };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select().from(schema.messages)
     .where(and(eq(schema.messages.contextType, 'PROJECT'), eq(schema.messages.contextId, (r as any).project.id)))
@@ -339,6 +354,7 @@ export const clientMessagesHandler: ToolHandler = async (args, ctx) => {
 export const clientFilesHandler: ToolHandler = async (args, ctx) => {
   const r = await authProject(ctx, String(args.projectId ?? ''));
   if ('error' in r) return { result: r };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
   const db = ctx.db as DB;
   const rows = await db.select().from(schema.projectFiles).where(eq(schema.projectFiles.projectId, (r as any).project.id)).orderBy(desc(schema.projectFiles.createdAt)).limit(20);
   return { result: { project: (r as any).project.title, files: rows.map((f: any) => ({

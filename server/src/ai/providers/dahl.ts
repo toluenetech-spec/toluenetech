@@ -4,8 +4,13 @@ interface Options { apiKey: string; model?: string; baseUrl?: string; }
 
 /**
  * Dahl Inference (https://inference.dahl.global/) — OpenAI-compatible.
- * Confirmed models: MiniMaxAI/MiniMax-M2.7 (primary), DeepSeek-V4-Flash (fast),
- * moonshotai/Kimi-K2.6 (fallback).
+ *
+ * Verified models (Oct 2026):
+ *   - deepseek-ai/DeepSeek-V4-Flash-0731  fast (tools)
+ *   - MiniMaxAI/MiniMax-M2.7              reasoning/agent primary (tools)
+ *   - zai-org/GLM-5.3-Flash               fallback (tools)
+ *
+ * Retired / NOT available: moonshotai/Kimi-K2.6, zai-org/GLM-5.2-FP8.
  */
 export function createDahlProvider({
   apiKey,

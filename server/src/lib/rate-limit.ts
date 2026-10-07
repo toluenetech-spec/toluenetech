@@ -1,7 +1,5 @@
 /**
  * Very small in-memory rate limiter (per Worker isolate).
- * Good enough to blunt abuse on a public assistant endpoint;
- * replace with Workers KV/Upstash if you need distributed consistency.
  */
 interface Bucket { hits: number[]; }
 const buckets = new Map<string, Bucket>();
@@ -9,7 +7,6 @@ const buckets = new Map<string, Bucket>();
 export function rateLimit(key: string, opts: { windowMs: number; max: number }): { ok: boolean; retryAfter: number } {
   const now = Date.now();
   const b = buckets.get(key) ?? { hits: [] };
-  // evict old hits
   b.hits = b.hits.filter(t => now - t < opts.windowMs);
   if (b.hits.length >= opts.max) {
     const oldest = b.hits[0];
@@ -20,7 +17,6 @@ export function rateLimit(key: string, opts: { windowMs: number; max: number }):
   return { ok: true, retryAfter: 0 };
 }
 
-export function clientIp(req: Request, env: Record<string, string | undefined>): string {
-  // CF adds CF-Connecting-IP when deployed; fall back to header for dev.
+export function clientIp(req: Request): string {
   return (req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() || 'unknown').slice(0, 64);
 }

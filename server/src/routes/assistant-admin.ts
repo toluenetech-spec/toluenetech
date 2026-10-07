@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
-import { AIConfigError, getAI } from '../ai';
+import { AIConfigError, AIError, getAI } from '../ai';
 import { ADMIN_SYSTEM_PROMPT } from '../ai/agents/system-prompts';
 import { ADMIN_TOOLS, buildHandlers } from '../ai/tools';
 import { basePublicContext, adminSummary } from '../retrieval';
@@ -10,7 +10,6 @@ import { authAdmin } from '../lib/auth';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
-
 const HISTORY_LIMIT = 12;
 const MAX_MSG = 2000;
 
@@ -28,7 +27,7 @@ app.post('/', async (c) => {
   let auth;
   try { auth = await authAdmin(c.req.raw, env); } catch { return c.json({ error: 'Unauthorized' }, 401); }
 
-  const ip = clientIp(c.req.raw, env as unknown as Record<string,string|undefined>);
+  const ip = clientIp(c.req.raw);
   const rl = rateLimit(`admin-chat:${auth.uid}:${ip}`, { windowMs: 60_000, max: 30 });
   if (!rl.ok) return c.json({ error: 'Rate limit exceeded' }, 429);
 
@@ -59,10 +58,16 @@ app.post('/', async (c) => {
     .orderBy(desc(schema.assistantMessages.createdAt)).limit(HISTORY_LIMIT);
   history.reverse();
 
-  // Admin CRM snapshot (concise — full detail is fetched via tools)
-  const [cms, summary] = await Promise.all([basePublicContext(db), adminSummary(db)]);
+  let cms = '';
+  let summary: { newLeads: number; totalLeads: number; totalProjects: number; latestLeads: any[] } = { newLeads: 0, totalLeads: 0, totalProjects: 0, latestLeads: [] };
+  try {
+    const [_cms, _sum] = await Promise.all([basePublicContext(db), adminSummary(db)]);
+    cms = _cms; summary = _sum;
+  } catch (e) {
+    console.log(JSON.stringify({ ts: new Date().toISOString(), ai: 'admin', event: 'db_error', phase: 'context', cause: String((e as Error).message).slice(0, 300) }));
+  }
 
-  const systemContent = `${ADMIN_SYSTEM_PROMPT}\n\n${cms}\n\nADMIN SNAPSHOT:\n- User: ${admName} (${auth.email})\n- New (NEW) leads: ${summary.newLeads}\n- Total leads: ${summary.totalLeads}\n- Total client projects: ${summary.totalProjects}\n- 8 most recent leads are available via admin_list_leads.\n\nIMPORTANT: use the admin_* tools for any specific lead/project question. Do not guess numbers. Drafted replies are NOT sent — tell the admin that clearly.`;
+  const systemContent = `${ADMIN_SYSTEM_PROMPT}\n\n${cms}\n\nADMIN SNAPSHOT:\n- User: ${admName} (${auth.email})\n- New (NEW) leads: ${summary.newLeads}\n- Total leads: ${summary.totalLeads}\n- Total client projects: ${summary.totalProjects}\n- 8 most recent leads are available via admin_list_leads.\n\nIMPORTANT: use the admin_* tools for any specific lead/project question. Do not guess numbers. Drafted replies are NOT sent.`;
 
   const messages = [
     { role: 'system' as const, content: systemContent },
@@ -73,6 +78,8 @@ app.post('/', async (c) => {
   let reply: string;
   let toolCalls: any[] = [];
   let model = '';
+  let usedFallback = false;
+  let userError: string | null = null;
   try {
     const ai = getAI(env);
     const r = await ai.run(
@@ -81,27 +88,33 @@ app.post('/', async (c) => {
         tier: 'reasoning',
         tools: ADMIN_TOOLS,
         maxTurns: 6,
-        maxTokens: 900,
-        timeoutMs: 30_000,
+        maxTokens: 1000,
+        timeoutMs: 40_000,
+        label: 'admin',
       },
       buildHandlers({ kind: 'admin', auth: { uid: auth.uid, email: auth.email, name: admName, role: 'ADMIN' }, db, env, ip }),
       { kind: 'admin', auth: { uid: auth.uid, email: auth.email, name: admName, role: 'ADMIN' }, db, env, ip },
     );
-    reply = r.content;
-    model = r.model;
-    toolCalls = r.toolCalls;
+    reply = r.content; model = r.model; toolCalls = r.toolCalls; usedFallback = r.usedFallback;
   } catch (e) {
     if (e instanceof AIConfigError) {
-      reply = "AI provider isn't configured yet for admin — set AI_PROVIDER and AI_API_KEY secrets.";
+      reply = "AI provider isn't configured yet — set AI_PROVIDER and AI_API_KEY secrets.";
+      userError = 'config';
+    } else if (e instanceof AIError) {
+      reply = e.info.code === 'TIMEOUT'
+        ? "That took longer than expected — try a narrower question."
+        : "I hit an error reaching the model. Please try again in a moment.";
+      userError = e.info.code;
     } else {
-      reply = "I hit an error reaching the model. Please try again in a moment.";
+      reply = "I hit an error. Please try again.";
+      userError = 'unknown';
     }
   }
 
   await db.insert(schema.assistantMessages).values({ sessionId: session.id, role: 'assistant', content: reply });
   await db.update(schema.assistantSessions).set({ lastMessageAt: new Date() }).where(eq(schema.assistantSessions.id, session.id));
 
-  return c.json({ reply, anonId, model, toolCalls: toolCalls.map(t => ({ name: t.name, ok: t.ok })) });
+  return c.json({ reply, anonId, model, usedFallback, error: userError ?? undefined, toolCalls: toolCalls.map(t => ({ name: t.name, ok: t.ok })) });
 });
 
 export default app;

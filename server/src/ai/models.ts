@@ -1,109 +1,115 @@
 /**
  * Model routing for Dahl Inference.
  *
- * Confirmed available models (Oct 2026):
- *   - MiniMaxAI/MiniMax-M2.7   : primary reasoning/agent/tool-calling model
- *   - DeepSeek-V4-Flash        : fast public-visitor chat (DeepSeek)
- *   - moonshotai/Kimi-K2.6     : long-context / reasoning fallback
+ * Verified available models (Dahl docs + dashboard, Oct 2026):
+ *   - deepseek-ai/DeepSeek-V4-Flash-0731  : fast public chat, supports tools
+ *   - MiniMaxAI/MiniMax-M2.7              : reasoning/agent/tool-calling primary
+ *   - zai-org/GLM-5.3-Flash               : fallback (fast + tool capable)
  *
- * GLM-5.x is "soon" per Dahl docs; we keep a commented entry so we can add it
- * quickly once live.
+ * Retired / NOT available:
+ *   - moonshotai/Kimi-K2.6  — RETIRED on Dahl; DO NOT USE.
+ *   - zai-org/GLM-5.2-FP8   — RETIRED.
+ *   - Qwen/Qwen3.8-Flash-Next — not yet serving.
  *
  * Routing tiers:
- *   tier 'fast'      → fast, cheap, short answers (public greetings, FAQ, simple Q)
- *   tier 'standard'  → balanced (default)
- *   tier 'reasoning' → strongest model (admin copilot, client assistant, lead
- *                      qualification, tool use, quotation drafting)
+ *   tier 'fast'      → DeepSeek-V4-Flash-0731 (public greetings, simple Q, AI Lab)
+ *   tier 'standard'  → MiniMax-M2.7 (default for non-trivial chat w/ tools)
+ *   tier 'reasoning' → MiniMax-M2.7 (admin copilot, client assistant, lead qual,
+ *                      quotation, structured planning)
+ *
+ * Fallback on any error/timeout/empty: primary → GLM-5.3-Flash.
+ * If GLM also fails → user-facing graceful error.
  */
 
 export type TaskTier = 'fast' | 'standard' | 'reasoning';
 
 export interface ModelConfig {
-  /** Model ID passed to Dahl /chat/completions */
   id: string;
-  /** Friendly label used in logging */
   label: string;
-  /** Context window (tokens) — conservative; adjust as Dahl rotates capacity */
   contextWindow: number;
-  /** Default max output tokens */
   maxOutput: number;
-  /** Temperature */
   temperature: number;
-  /** Whether the model supports tool/function calling reliably */
+  /** Whether this model reliably supports tools/function calling on Dahl. */
   tools: boolean;
-  /** Whether this model is known to emit <think> blocks */
+  /** Whether this model emits <think> / <thinking> / <|begin_of_thought|> blocks. */
   emitsThinking: boolean;
 }
 
-/** Ordered list used by auto-fallback when a model errors out. */
 export const MODEL_CATALOG: Record<string, ModelConfig> = {
+  'deepseek-ai/DeepSeek-V4-Flash-0731': {
+    id: 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    label: 'deepseek-v4-flash',
+    contextWindow: 400_000,
+    maxOutput: 600,
+    temperature: 0.45,
+    tools: true, // DeepSeek V4 Flash supports tools on Dahl
+    emitsThinking: false,
+  },
   'MiniMaxAI/MiniMax-M2.7': {
     id: 'MiniMaxAI/MiniMax-M2.7',
     label: 'minimax-m2.7',
-    contextWindow: 200_000,
+    contextWindow: 180_000,
     maxOutput: 900,
     temperature: 0.35,
     tools: true,
     emitsThinking: false,
   },
-  'moonshotai/Kimi-K2.6': {
-    id: 'moonshotai/Kimi-K2.6',
-    label: 'kimi-k2.6',
-    contextWindow: 256_000,
+  'zai-org/GLM-5.3-Flash': {
+    id: 'zai-org/GLM-5.3-Flash',
+    label: 'glm-5.3-flash',
+    contextWindow: 400_000,
     maxOutput: 900,
-    temperature: 0.35,
-    tools: true,
-    emitsThinking: false,
+    temperature: 0.45,
+    tools: true, // GLM-5.3-Flash supports function calling (OpenAI-compatible schema)
+    emitsThinking: true, // GLM thinking is always-on; strip it
   },
-  'DeepSeek-V4-Flash': {
-    id: 'DeepSeek-V4-Flash',
-    label: 'deepseek-v4-flash',
-    contextWindow: 128_000,
-    maxOutput: 500,
-    temperature: 0.5,
-    tools: false, // flash is for fast plain chat
-    emitsThinking: true,
-  },
-  // Reserved for when GLM 5.x goes live:
-  // 'zai-org/GLM-5.3-Flash': { id: 'zai-org/GLM-5.3-Flash', label: 'glm-5.3-flash', ... },
 };
 
-/** Which model handles each tier, with environment overrides. */
-export function pickModel(env: { AI_MODEL?: string; AI_MODEL_PUBLIC?: string; AI_MODEL_FALLBACK?: string }, tier: TaskTier): string {
-  const explicit = tier === 'fast' ? env.AI_MODEL_PUBLIC : env.AI_MODEL;
-  if (explicit && MODEL_CATALOG[explicit]) return explicit;
-  if (explicit) return explicit; // allow custom model IDs even if not catalogued; fallback list will catch errors
+export function pickModel(env: {
+  AI_MODEL?: string;
+  AI_MODEL_PUBLIC?: string;
+  AI_MODEL_REASONING?: string;
+  AI_MODEL_FALLBACK?: string;
+}, tier: TaskTier): string {
+  let explicit: string | undefined;
+  if (tier === 'fast') explicit = env.AI_MODEL_PUBLIC;
+  else if (tier === 'reasoning') explicit = env.AI_MODEL_REASONING ?? env.AI_MODEL;
+  else explicit = env.AI_MODEL;
+  if (explicit) return explicit;
   switch (tier) {
-    case 'fast':      return 'DeepSeek-V4-Flash';
+    case 'fast':      return 'deepseek-ai/DeepSeek-V4-Flash-0731';
     case 'standard':  return 'MiniMaxAI/MiniMax-M2.7';
     case 'reasoning': return 'MiniMaxAI/MiniMax-M2.7';
   }
 }
 
-/** Ordered fallback list to try when a model fails. Always starts with the
- *  chosen model, then alternates within its tier, then reasoning. */
-export function fallbackChain(env: { AI_MODEL?: string; AI_MODEL_FALLBACK?: string }, primaryId: string): string[] {
-  const fb = env.AI_MODEL_FALLBACK;
-  const ordered = [primaryId];
-  const push = (id: string) => { if (id && !ordered.includes(id)) ordered.push(id); };
-  // Prefer explicit fallback first
-  if (fb) push(fb);
-  // Tier-aware fallback
-  if (primaryId === 'DeepSeek-V4-Flash') {
-    push('MiniMaxAI/MiniMax-M2.7');
-    push('moonshotai/Kimi-K2.6');
-  } else if (primaryId === 'MiniMaxAI/MiniMax-M2.7') {
-    push('moonshotai/Kimi-K2.6');
-    push('DeepSeek-V4-Flash');
-  } else {
-    push('MiniMaxAI/MiniMax-M2.7');
-    push('DeepSeek-V4-Flash');
-  }
+/** Fallback chain: [primary, GLM]. Order ensures we never call a retired model. */
+export function fallbackChain(env: { AI_MODEL_FALLBACK?: string }, primaryId: string): string[] {
+  const fb = env.AI_MODEL_FALLBACK || 'zai-org/GLM-5.3-Flash';
+  const ordered: string[] = [primaryId];
+  if (fb && fb !== primaryId) ordered.push(fb);
   return ordered;
 }
 
 export function getModelConfig(id: string): ModelConfig {
   return MODEL_CATALOG[id] ?? {
-    id, label: id, contextWindow: 64_000, maxOutput: 600, temperature: 0.4, tools: false, emitsThinking: false,
+    id, label: id, contextWindow: 128_000, maxOutput: 600,
+    temperature: 0.4, tools: false, emitsThinking: false,
   };
+}
+
+/** Aliases / historical names we want to normalise to avoid 400s from Dahl. */
+export function normaliseModelId(id: string): string {
+  const m: Record<string, string> = {
+    'DeepSeek-V4-Flash': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    'deepseek-v4-flash': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    'DeepSeek-V4-Flash-0731': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    'deepseek-ai/DeepSeek-V4-Flash': 'deepseek-ai/DeepSeek-V4-Flash-0731',
+    'glm-5.3-flash': 'zai-org/GLM-5.3-Flash',
+    'GLM-5.3-Flash': 'zai-org/GLM-5.3-Flash',
+    'zai-org/glm-5.3-flash': 'zai-org/GLM-5.3-Flash',
+    'MiniMax-M2.7': 'MiniMaxAI/MiniMax-M2.7',
+    'minimax-m2.7': 'MiniMaxAI/MiniMax-M2.7',
+  };
+  return m[id] ?? id;
 }
