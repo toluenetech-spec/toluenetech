@@ -29,10 +29,22 @@ const pillIcon = (mode: ToleshMode) =>
 
 function endpointFor(mode: ToleshMode): string {
   const env = (import.meta as unknown as { env?: { VITE_API_URL?: string; DEV?: boolean } }).env;
-  const base = env?.VITE_API_URL ?? (env?.DEV ? '' : 'https://toluene-tech-api.toluenetech.workers.dev');
-  return mode === 'admin' ? `${base}/assistant/admin`
-       : mode === 'client' ? `${base}/assistant/client`
-       : `${base}/assistant/chat`;
+  // Explicit override always wins
+  if (env?.VITE_API_URL) {
+    return mode === 'admin' ? `${env.VITE_API_URL}/assistant/admin`
+         : mode === 'client' ? `${env.VITE_API_URL}/assistant/client`
+         : `${env.VITE_API_URL}/assistant/chat`;
+  }
+  // Dev: same-origin (Vite proxies)
+  if (env?.DEV) {
+    return mode === 'admin' ? '/assistant/admin'
+         : mode === 'client' ? '/assistant/client'
+         : '/assistant/chat';
+  }
+  // Production: default to the dedicated Worker subdomain.
+  return mode === 'admin' ? 'https://toluene-tech-api.toluenetech.workers.dev/assistant/admin'
+       : mode === 'client' ? 'https://toluene-tech-api.toluenetech.workers.dev/assistant/client'
+       : 'https://toluene-tech-api.toluenetech.workers.dev/assistant/chat';
 }
 const sidKey = (m: ToleshMode) => `tt_${m}_sid`;
 
@@ -127,9 +139,15 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
         return copy;
       });
     } catch (err) {
+      const e = err as Error;
+      let msg = "I couldn't reach our models — please try again in a moment.";
+      if (e?.message === 'Failed to fetch' || /networkerror|failed to fetch/i.test(e?.message || '')) {
+        msg = "I can't reach our server right now (network/CORS). This usually fixes itself with a refresh — if it persists please message us via the contact form.";
+      } else if (e?.message) {
+        msg = e.message;
+      }
       setMessages(prev => {
         const copy = [...prev];
-        const msg = (err as Error).message || "I couldn't reach our models — try again in a moment.";
         for (let i = copy.length - 1; i >= 0; i--) {
           if (copy[i].thinking) { copy[i] = { role: 'assistant', content: msg, error: true }; break; }
         }

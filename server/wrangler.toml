@@ -19,5 +19,5 @@ preview_bucket_name = "toluenetech-assets-dev"
 [vars]
 ENVIRONMENT = "production"
 R2_PUBLIC_URL = "https://pub-3ba2d6d48fc941ae93a9328a913b8b85.r2.dev"
-CORS_ORIGIN = "http://localhost:5173,https://curious-sprinkles-59674e.netlify.app,https://toluenetech.com,https://*.netlify.app"
+CORS_ORIGIN = "http://localhost:5173,https://curious-sprinkles-59674e.netlify.app,https://toluenetech.com,https://www.toluenetech.com,https://toluenetech.name.ng,https://www.toluenetech.name.ng,https://*.netlify.app,https://*.pages.dev"
 ASSISTANT_SECRET = "00d40a3066b3c508631b9b45cfc580a5cc262358f4213a3df0eb54a7499aa94a"
