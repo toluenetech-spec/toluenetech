@@ -1,10 +1,14 @@
 # Cloudflare Workers config for Toluene Tech API
 #
 # Only SECRETS are set via GitHub Actions secrets / wrangler secret put:
-#   DATABASE_URL   — Neon postgres://... (contains password)
-#   AI_PROVIDER    — optional; set later when you add AI (openai|anthropic|gemini|dahl)
-#   AI_API_KEY     — optional
-#   AI_MODEL       — optional
+#   DATABASE_URL       — Neon postgres://... (contains password)
+#   AI_PROVIDER        — 'dahl' (or openai|anthropic|gemini)
+#   AI_API_KEY         — Dahl API key
+#   AI_MODEL           — override standard/reasoning model (default: MiniMaxAI/MiniMax-M2.7)
+#   AI_MODEL_PUBLIC    — override fast/public model (default: deepseek-ai/DeepSeek-V4-Flash-0731)
+#   AI_MODEL_REASONING — override reasoning model (falls back to AI_MODEL then MiniMax)
+#   AI_MODEL_FALLBACK  — override fallback (default: zai-org/GLM-5.3-Flash)
+#   ADMIN_PASSWORD     — overrides the legacy hardcoded admin password
 name = "toluene-tech-api"
 main = "src/index.ts"
 compatibility_date = "2025-01-21"
