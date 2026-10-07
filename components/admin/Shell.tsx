@@ -108,39 +108,40 @@ function Shell({ onLogout }: { onLogout: () => void }) {
           <div className="adm-content-inner">
             <AnimatePresence mode="wait">
               <Routes>
-                <Route path="/" element={<Navigate to="/admin/dashboard" replace/>}/>
-                <Route path="/dashboard" element={<PageWrap><Dashboard/></PageWrap>}/>
-                <Route path="/leads" element={<PageWrap><LeadsSection/></PageWrap>}/>
-                <Route path="/leads/:id" element={<PageWrap><LeadsSection/></PageWrap>}/>
-                <Route path="/clients" element={<PageWrap><ClientsSection/></PageWrap>}/>
-                <Route path="/jobs" element={<PageWrap><JobsSection/></PageWrap>}/>
-                <Route path="/messages" element={<PageWrap><ComingSoon title="Messages" subtitle="Project messaging and inbox will be managed here when the client portal rollout is complete." icon="MessageSquare"/></PageWrap>}/>
-                <Route path="/files" element={<PageWrap><MediaSection tab="files"/></PageWrap>}/>
-                <Route path="/invoices" element={<PageWrap><ComingSoon title="Invoices" subtitle="Invoice management will be available once payment integrations are live." icon="Receipt"/></PageWrap>}/>
-                <Route path="/services" element={<PageWrap><ServicesSection/></PageWrap>}/>
-                <Route path="/solutions" element={<PageWrap><SolutionsSection/></PageWrap>}/>
-                <Route path="/portfolio" element={<PageWrap><PortfolioSection/></PageWrap>}/>
-                <Route path="/testimonials" element={<PageWrap><TestimonialsSection/></PageWrap>}/>
-                <Route path="/faqs" element={<PageWrap><FAQsSection/></PageWrap>}/>
-                <Route path="/insights" element={<PageWrap><InsightsSection/></PageWrap>}/>
-                <Route path="/products" element={<PageWrap><ProductsSection/></PageWrap>}/>
-                <Route path="/labs" element={<PageWrap><ComingSoon title="AI Lab Content" subtitle="Manage the Planner, Advisor and Idea Analyzer context data." icon="FlaskConical"/></PageWrap>}/>
-                <Route path="/pricing" element={<PageWrap><PricingSection/></PageWrap>}/>
-                <Route path="/tools" element={<PageWrap><ToolsSection/></PageWrap>}/>
-                <Route path="/media" element={<PageWrap><MediaSection/></PageWrap>}/>
-                <Route path="/ai/chat" element={<AIChatSection/>}/>
-                <Route path="/ai/chat/:id" element={<AIChatSection/>}/>
-                <Route path="/ai/models" element={<PageWrap><AIModelControl/></PageWrap>}/>
-                <Route path="/ai/health" element={<PageWrap><AIHealth/></PageWrap>}/>
-                <Route path="/ai/conversations" element={<PageWrap><AIConversations/></PageWrap>}/>
-                <Route path="/settings/general" element={<PageWrap><SettingsGeneral/></PageWrap>}/>
-                <Route path="/settings/social" element={<PageWrap><SettingsSocial/></PageWrap>}/>
-                <Route path="/settings/availability" element={<PageWrap><SettingsAvailability/></PageWrap>}/>
-                <Route path="/settings/notifications" element={<PageWrap><SettingsNotifications/></PageWrap>}/>
-                <Route path="/settings/brand" element={<PageWrap><SettingsBrand/></PageWrap>}/>
-                <Route path="/settings/founder" element={<PageWrap><SettingsFounder/></PageWrap>}/>
-                <Route path="/settings/seo" element={<PageWrap><SettingsSEO/></PageWrap>}/>
-                <Route path="/settings/security" element={<PageWrap><SettingsSecurity/></PageWrap>}/>
+                <Route path="/admin" element={<Navigate to="/admin/dashboard" replace/>}/>
+                <Route path="/admin/" element={<Navigate to="/admin/dashboard" replace/>}/>
+                <Route path="/admin/dashboard" element={<PageWrap><Dashboard/></PageWrap>}/>
+                <Route path="/admin/leads" element={<PageWrap><LeadsSection/></PageWrap>}/>
+                <Route path="/admin/leads/:id" element={<PageWrap><LeadsSection/></PageWrap>}/>
+                <Route path="/admin/clients" element={<PageWrap><ClientsSection/></PageWrap>}/>
+                <Route path="/admin/jobs" element={<PageWrap><JobsSection/></PageWrap>}/>
+                <Route path="/admin/messages" element={<PageWrap><ComingSoon title="Messages" subtitle="Project messaging and inbox will be managed here when the client portal rollout is complete." icon="MessageSquare"/></PageWrap>}/>
+                <Route path="/admin/files" element={<PageWrap><MediaSection tab="files"/></PageWrap>}/>
+                <Route path="/admin/invoices" element={<PageWrap><ComingSoon title="Invoices" subtitle="Invoice management will be available once payment integrations are live." icon="Receipt"/></PageWrap>}/>
+                <Route path="/admin/services" element={<PageWrap><ServicesSection/></PageWrap>}/>
+                <Route path="/admin/solutions" element={<PageWrap><SolutionsSection/></PageWrap>}/>
+                <Route path="/admin/portfolio" element={<PageWrap><PortfolioSection/></PageWrap>}/>
+                <Route path="/admin/testimonials" element={<PageWrap><TestimonialsSection/></PageWrap>}/>
+                <Route path="/admin/faqs" element={<PageWrap><FAQsSection/></PageWrap>}/>
+                <Route path="/admin/insights" element={<PageWrap><InsightsSection/></PageWrap>}/>
+                <Route path="/admin/products" element={<PageWrap><ProductsSection/></PageWrap>}/>
+                <Route path="/admin/labs" element={<PageWrap><ComingSoon title="AI Lab Content" subtitle="Manage the Planner, Advisor and Idea Analyzer context data." icon="FlaskConical"/></PageWrap>}/>
+                <Route path="/admin/pricing" element={<PageWrap><PricingSection/></PageWrap>}/>
+                <Route path="/admin/tools" element={<PageWrap><ToolsSection/></PageWrap>}/>
+                <Route path="/admin/media" element={<PageWrap><MediaSection/></PageWrap>}/>
+                <Route path="/admin/ai/chat" element={<AIChatSection/>}/>
+                <Route path="/admin/ai/chat/:id" element={<AIChatSection/>}/>
+                <Route path="/admin/ai/models" element={<PageWrap><AIModelControl/></PageWrap>}/>
+                <Route path="/admin/ai/health" element={<PageWrap><AIHealth/></PageWrap>}/>
+                <Route path="/admin/ai/conversations" element={<PageWrap><AIConversations/></PageWrap>}/>
+                <Route path="/admin/settings/general" element={<PageWrap><SettingsGeneral/></PageWrap>}/>
+                <Route path="/admin/settings/social" element={<PageWrap><SettingsSocial/></PageWrap>}/>
+                <Route path="/admin/settings/availability" element={<PageWrap><SettingsAvailability/></PageWrap>}/>
+                <Route path="/admin/settings/notifications" element={<PageWrap><SettingsNotifications/></PageWrap>}/>
+                <Route path="/admin/settings/brand" element={<PageWrap><SettingsBrand/></PageWrap>}/>
+                <Route path="/admin/settings/founder" element={<PageWrap><SettingsFounder/></PageWrap>}/>
+                <Route path="/admin/settings/seo" element={<PageWrap><SettingsSEO/></PageWrap>}/>
+                <Route path="/admin/settings/security" element={<PageWrap><SettingsSecurity/></PageWrap>}/>
                 <Route path="*" element={<Navigate to="/admin/dashboard" replace/>}/>
               </Routes>
             </AnimatePresence>

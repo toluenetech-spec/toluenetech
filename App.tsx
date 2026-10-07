@@ -34,8 +34,10 @@ import Portal from './pages/portal/Portal';
 import PageLoader from './components/PageLoader';
 import ToleshWidget from './components/ToleshWidget';
 
-// The new admin shell has AI Chat built-in; the floating admin FAB would double-up.
-// We deliberately DO NOT mount <ToleshWidget mode="admin"/> over /admin any more.
+// The admin shell is mounted OUTSIDE the public-page <Routes> so that its
+// internal <Routes> can use absolute paths (/admin/dashboard, /admin/leads, ...)
+// without being nested under a parent "/admin/*" route (which would make the
+// inner router see only "/dashboard" and mismatch, producing a redirect loop).
 const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <>
     {children}
@@ -63,9 +65,8 @@ const IntroLoader: React.FC = () => {
   return <AnimatePresence>{!done && <PageLoader />}</AnimatePresence>;
 };
 
-const AnimatedRoutes: React.FC = () => {
+const PublicRoutes: React.FC = () => {
   const location = useLocation();
-  const isAdminRoute = location.pathname.startsWith('/admin');
   return (
     <AnimatePresence mode="wait">
       <React.Fragment key={location.pathname}>
@@ -92,19 +93,31 @@ const AnimatedRoutes: React.FC = () => {
           <Route path="/downloads" element={<Layout><PageTransition><Downloads /></PageTransition></Layout>} />
           <Route path="/contact" element={<Layout><PageTransition><Contact /></PageTransition></Layout>} />
 
-          {/* Admin (no public chrome, no floating admin widget — AI is built in) */}
-          <Route path="/admin/*" element={<Admin />} />
-
           {/* Client Portal */}
           <Route path="/portal" element={<PortalLayout><PortalLogin /></PortalLayout>} />
           <Route path="/portal/dashboard" element={<PortalLayout><Portal /></PortalLayout>} />
 
+          {/* Public 404 (admin is handled separately below so it never hits this) */}
           <Route path="*" element={<Layout><PageTransition><NotFound /></PageTransition></Layout>} />
         </Routes>
-        {/* Public Tolesh widget on every public page, but not inside /admin */}
-        {!isAdminRoute && !location.pathname.startsWith('/portal') && <ToleshWidget mode="public" />}
+        {/* Public Tolesh widget — not shown on portal or admin */}
+        {!location.pathname.startsWith('/portal') && <ToleshWidget mode="public" />}
       </React.Fragment>
     </AnimatePresence>
+  );
+};
+
+const AppRouter: React.FC = () => {
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+  // When on /admin* render the admin shell (which owns its own <Routes>).
+  // Otherwise render the public site <Routes>. This lets admin's internal
+  // routes be absolute paths (/admin/dashboard, /admin/ai/chat/:id, ...)
+  // which matches the Sidebar links and AIChat navigation.
+  return (
+    <>
+      {isAdminRoute ? <Admin /> : <PublicRoutes />}
+    </>
   );
 };
 
@@ -115,7 +128,7 @@ const App: React.FC = () => (
         <ClientAuthProvider>
           <Router>
             <IntroLoader />
-            <AnimatedRoutes />
+            <AppRouter />
           </Router>
         </ClientAuthProvider>
       </DataProvider>
