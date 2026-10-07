@@ -47,7 +47,6 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
   const isDark =
     typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
 
-  // Palette (ChatGPT-parity neutrals, accent per mode)
   const accent = mode === 'admin' ? '#f59e0b' : mode === 'client' ? '#10b981' : '#2563eb';
   const bg       = isDark ? '#212121' : '#ffffff';
   const headerBg = isDark ? '#2b2b2b' : '#f7f7f8';
@@ -63,14 +62,12 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
     return () => clearTimeout(t);
   }, [open]);
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [messages, open]);
 
-  // Auto-grow textarea
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -154,40 +151,38 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
       style={{
         position: 'fixed',
         right: 'clamp(0.75rem, 3vw, 1.25rem)',
-        bottom: 'clamp(4.5rem, 9vh, 5.5rem)',
+        bottom: 'clamp(4.75rem, 9vh, 5.75rem)',
         zIndex: 70,
         width: 'min(24rem, calc(100vw - 1.5rem))',
-        height: 'min(38rem, calc(100dvh - 7rem))',
+        height: 'min(38rem, calc(100dvh - 8rem))',
         background: bg, color: fg,
         border: `1px solid ${border}`,
         borderRadius: 'clamp(12px, 2vw, 16px)',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.24), 0 2px 8px rgba(0,0,0,0.08)',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.08)',
+        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden',
         fontFamily: '"Söhne", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       }}
     >
       {/* Header */}
       <div style={{
-        padding: '0.7rem 0.9rem',
+        padding: '0.8rem 1rem',
         borderBottom: `1px solid ${border}`,
         background: headerBg,
-        display: 'flex', alignItems: 'center', gap: '0.65rem',
+        display: 'flex', alignItems: 'center', gap: '0.75rem',
       }}>
-        <ToleshAvatar size={32} mode={mode} />
+        <ToleshAvatar size={38} mode={mode} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{
-            fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.45rem',
-            lineHeight: 1.2,
-          }}>
+          <div style={{ fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem', lineHeight: 1.2 }}>
             {titleFor[mode]}
             <span style={{
-              fontSize: '0.62rem', padding: '2px 7px', borderRadius: '999px',
+              fontSize: '0.65rem', padding: '2px 8px', borderRadius: '999px',
               background: `${accent}1f`, color: accent,
               display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: 600,
               letterSpacing: '0.02em',
             }}>{pillIcon(mode)} beta</span>
           </div>
-          <div style={{ fontSize: '0.72rem', color: muted, lineHeight: 1.25, marginTop: 2 }}>
+          <div style={{ fontSize: '0.75rem', color: muted, lineHeight: 1.25, marginTop: 2 }}>
             {subtitleFor[mode]}
           </div>
         </div>
@@ -205,8 +200,8 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
         ref={listRef}
         style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
-          padding: '1.1rem 0.85rem 0.5rem',
-          display: 'flex', flexDirection: 'column', gap: '1.1rem',
+          padding: '1.2rem 1rem 0.6rem',
+          display: 'flex', flexDirection: 'column', gap: '1.2rem',
           WebkitOverflowScrolling: 'touch',
         }}
       >
@@ -216,7 +211,7 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
               <div key={i} style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <div style={{
                   maxWidth: '78%',
-                  padding: '0.55rem 0.9rem',
+                  padding: '0.6rem 0.95rem',
                   borderRadius: '18px',
                   borderBottomRightRadius: 6,
                   background: userBubbleBg,
@@ -228,18 +223,18 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
             );
           }
           return (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem' }}>
-              <div style={{ marginTop: 2 }}>
-                <ToleshAvatar size={28} mode={mode} />
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
+              <div style={{ flexShrink: 0, width: 32, paddingTop: 1 }}>
+                <ToleshAvatar size={30} mode={mode} />
               </div>
-              <div style={{ flex: 1, minWidth: 0, paddingTop: '0.15rem' }}>
+              <div style={{ flex: 1, minWidth: 0, paddingTop: '0.3rem' }}>
                 {m.thinking ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: muted, fontSize: '0.88rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', color: muted, fontSize: '0.9rem' }}>
                     <span className="tt-thinking-dots" aria-hidden>
                       <span /><span /><span />
                     </span>
-                    <span style={{ fontStyle: 'normal' }}>
-                      <span style={{ color: muted }}>Tolesh is thinking</span>
+                    <span>
+                      <span>Tolesh is thinking</span>
                       <span className="tt-dots-ellipsis" aria-hidden>…</span>
                     </span>
                   </div>
@@ -264,13 +259,13 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
 
       {/* Composer */}
       <form onSubmit={onSubmit} style={{
-        margin: '0.6rem 0.75rem 0.25rem',
-        padding: '0.5rem 0.5rem 0.5rem 0.95rem',
+        margin: '0.6rem 0.85rem 0.25rem',
+        padding: '0.55rem 0.55rem 0.55rem 1rem',
         border: `1px solid ${border}`,
-        borderRadius: '24px',
+        borderRadius: '26px',
         background: inputBg,
-        display: 'flex', alignItems: 'flex-end', gap: '0.45rem',
-        boxShadow: isDark ? 'inset 0 0 0 1px rgba(255,255,255,0.02)' : 'inset 0 0 0 1px rgba(0,0,0,0.02)',
+        display: 'flex', alignItems: 'flex-end', gap: '0.5rem',
+        boxShadow: isDark ? 'inset 0 0 0 1px rgba(255,255,255,0.03)' : 'inset 0 0 0 1px rgba(0,0,0,0.02)',
       }}>
         <textarea
           ref={inputRef}
@@ -287,7 +282,7 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
           style={{
             flex: 1, border: 'none', outline: 'none', resize: 'none',
             background: 'transparent', color: fg, fontSize: '0.92rem', lineHeight: 1.5,
-            fontFamily: 'inherit', padding: '0.4rem 0', maxHeight: 160,
+            fontFamily: 'inherit', padding: '0.45rem 0', maxHeight: 160,
             caretColor: accent,
           }}
         />
@@ -296,7 +291,7 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
           disabled={busy || !input.trim()}
           aria-label="Send message"
           style={{
-            width: '2.05rem', height: '2.05rem', borderRadius: '999px', border: 'none',
+            width: '2.15rem', height: '2.15rem', borderRadius: '999px', border: 'none',
             background: input.trim() && !busy ? accent : (isDark ? '#3f3f46' : '#d1d5db'),
             color: input.trim() && !busy ? '#ffffff' : (isDark ? '#a1a1aa' : '#6b7280'),
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -308,7 +303,7 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
       </form>
 
       <div style={{
-        textAlign: 'center', fontSize: '0.7rem', color: muted, padding: '0.35rem 0 0.65rem',
+        textAlign: 'center', fontSize: '0.7rem', color: muted, padding: '0.4rem 0 0.7rem',
         lineHeight: 1.3,
       }}>
         Tolesh can make mistakes — verify important information.
@@ -317,7 +312,7 @@ const ToleshChat: React.FC<Props> = ({ mode: m = 'public', open, onClose }) => {
       <style>{`
         .tt-thinking-dots { display:inline-flex; gap:3px; align-items:center; }
         .tt-thinking-dots span {
-          width:5px; height:5px; border-radius:50%;
+          width:6px; height:6px; border-radius:50%;
           background: ${accent}; opacity:.4; display:inline-block;
           animation: tt-bounce 1.3s infinite ease-in-out;
         }

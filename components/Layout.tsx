@@ -236,20 +236,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
       <main className="relative z-10 flex-grow pt-24">{children}</main>
 
-      {/* Floating WhatsApp Button */}
-      <motion.a
-        href={whatsappFloatingLink}
-        target="_blank"
-        rel="noopener noreferrer"
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ delay: 1, type: 'spring' }}
-        className="group fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-green-500 text-white shadow-glow transition-all hover:scale-110 hover:bg-green-600"
-        aria-label="Chat on WhatsApp"
-      >
-        <span className="absolute inset-0 animate-ping rounded-full bg-green-500 opacity-20" />
-        <MessageCircle className="h-7 w-7" />
-      </motion.a>
+      {/* Floating assistant is Tolesh AI (mounted below); WhatsApp link remains in footer & /contact. */}
 
       {/* Footer */}
       <footer className="relative z-10 mt-24 overflow-hidden border-t border-slate-200 bg-slate-50 dark:border-white/5 dark:bg-ink-900">
