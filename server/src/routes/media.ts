@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { eq, or } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { makeKey, publicUrlFor, validateUpload, limits } from '../lib/r2';
+import { authAdmin } from '../lib/auth';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -17,9 +18,11 @@ app.get('/item/:id', async (c) => {
   return c.json({ item: row });
 });
 
-/** Admin upload (auth middleware added in later phase). */
 async function handleUpload(c: any) {
   const env = c.env as Env;
+  // Auth-gate uploads.
+  try { await authAdmin(c.req.raw, env); } catch { return c.json({ error: 'Unauthorized' }, 401); }
+
   const bucket = env.ASSETS;
   if (!bucket) return c.json({ error: 'Storage not configured' }, 500);
 
@@ -27,6 +30,7 @@ async function handleUpload(c: any) {
   const contentLengthStr = c.req.header('content-length');
   const contentLength = contentLengthStr ? parseInt(contentLengthStr, 10) : null;
   const filename = (c.req.query('filename') || 'upload').slice(0, 120);
+  const alt = (c.req.query('alt') || '').slice(0, 200);
   const mimeErr = validateUpload(contentType, contentLength);
   if (mimeErr) return c.json({ error: mimeErr }, 400);
 
@@ -39,6 +43,7 @@ async function handleUpload(c: any) {
   const db = getDb(env);
   const [media] = await db.insert(schema.media).values({
     filename, r2Key: key, publicUrl, mimeType: contentType, sizeBytes: body.byteLength,
+    alt: alt || null,
   }).returning();
 
   return c.json({ ok: true, item: media, publicUrl }, 201);

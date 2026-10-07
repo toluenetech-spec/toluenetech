@@ -7,6 +7,7 @@ import { ADMIN_TOOLS, buildHandlers } from '../ai/tools';
 import { basePublicContext, adminSummary } from '../retrieval';
 import { rateLimit, clientIp } from '../lib/rate-limit';
 import { authAdmin } from '../lib/auth';
+import { resolveForSurface } from '../ai/surface-config';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -82,9 +83,12 @@ app.post('/', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
+    const { primary, fallbackChain: fb } = resolveForSurface(env, 'admin');
     const r = await ai.run(
       {
         messages,
+        model: primary,
+        fallbackModels: fb.slice(1),
         tier: 'reasoning',
         tools: ADMIN_TOOLS,
         maxTurns: 6,

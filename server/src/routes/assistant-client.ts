@@ -6,6 +6,7 @@ import { CLIENT_SYSTEM_PROMPT } from '../ai/agents/system-prompts';
 import { CLIENT_TOOLS, buildHandlers } from '../ai/tools';
 import { rateLimit, clientIp } from '../lib/rate-limit';
 import { authClient } from '../lib/auth';
+import { resolveForSurface } from '../ai/surface-config';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -112,9 +113,12 @@ app.post('/', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
+    const { primary, fallbackChain: fb } = resolveForSurface(env, 'client');
     const r = await ai.run(
       {
         messages,
+        model: primary,
+        fallbackModels: fb.slice(1),
         tier: 'reasoning',
         tools: CLIENT_TOOLS,
         maxTurns: 5,

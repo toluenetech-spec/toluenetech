@@ -19,6 +19,8 @@ export interface ChatRequest {
   messages: ChatMessage[];
   tier?: TaskTier;
   model?: string;
+  /** Explicit fallback chain (primary is always at index 0 implicitly). */
+  fallbackModels?: string[];
   temperature?: number;
   maxTokens?: number;
   tools?: ToolSpec[];
@@ -113,7 +115,10 @@ export function getAI(env: Env) {
   async function run(req: ChatRequest, toolHandlers: Record<string, ToolHandler> = {}, ctx: ToolContext): Promise<ChatResult> {
     const primaryRaw = req.model ?? pickModel(env as any, req.tier ?? 'standard');
     const primary = normaliseModelId(primaryRaw);
-    const chain = fallbackChain(env as any, primary).map(normaliseModelId);
+    // Allow caller to override the fallback chain (per-surface config).
+    const chain = (req.fallbackModels && req.fallbackModels.length > 0)
+      ? [primary, ...req.fallbackModels.map(normaliseModelId)].filter((v, i, a) => a.indexOf(v) === i)
+      : fallbackChain(env as any, primary).map(normaliseModelId);
     const toolsByName: Record<string, ToolSpec> = {};
     for (const t of req.tools ?? []) toolsByName[t.name] = t;
     const maxTurns = Math.min(Math.max(1, req.maxTurns ?? 6), 10);

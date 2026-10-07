@@ -34,12 +34,8 @@ import Portal from './pages/portal/Portal';
 import PageLoader from './components/PageLoader';
 import ToleshWidget from './components/ToleshWidget';
 
-const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <>
-    {children}
-    <ToleshWidget mode="admin" />
-  </>
-);
+// The new admin shell has AI Chat built-in; the floating admin FAB would double-up.
+// We deliberately DO NOT mount <ToleshWidget mode="admin"/> over /admin any more.
 const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <>
     {children}
@@ -69,6 +65,7 @@ const IntroLoader: React.FC = () => {
 
 const AnimatedRoutes: React.FC = () => {
   const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
   return (
     <AnimatePresence mode="wait">
       <React.Fragment key={location.pathname}>
@@ -95,8 +92,8 @@ const AnimatedRoutes: React.FC = () => {
           <Route path="/downloads" element={<Layout><PageTransition><Downloads /></PageTransition></Layout>} />
           <Route path="/contact" element={<Layout><PageTransition><Contact /></PageTransition></Layout>} />
 
-          {/* Admin (no standard chrome) */}
-          <Route path="/admin" element={<AdminLayout><Admin /></AdminLayout>} />
+          {/* Admin (no public chrome, no floating admin widget — AI is built in) */}
+          <Route path="/admin/*" element={<Admin />} />
 
           {/* Client Portal */}
           <Route path="/portal" element={<PortalLayout><PortalLogin /></PortalLayout>} />
@@ -104,6 +101,8 @@ const AnimatedRoutes: React.FC = () => {
 
           <Route path="*" element={<Layout><PageTransition><NotFound /></PageTransition></Layout>} />
         </Routes>
+        {/* Public Tolesh widget on every public page, but not inside /admin */}
+        {!isAdminRoute && !location.pathname.startsWith('/portal') && <ToleshWidget mode="public" />}
       </React.Fragment>
     </AnimatePresence>
   );

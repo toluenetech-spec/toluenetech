@@ -5,6 +5,7 @@ import { AILAB_PLANNER_PROMPT, AILAB_ADVISOR_PROMPT, AILAB_IDEA_PROMPT } from '.
 import { PUBLIC_TOOLS, buildHandlers } from '../ai/tools';
 import { basePublicContext } from '../retrieval';
 import { rateLimit, clientIp } from '../lib/rate-limit';
+import { resolveForSurface, type Surface } from '../ai/surface-config';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -76,12 +77,14 @@ async function runLab(c: any, kind: LabKind, userText: string) {
     const handlers = db
       ? buildHandlers({ kind: 'public', auth: null, db, env, ip })
       : {};
-    // Planner gets the public read tools; advisor and idea only get lightweight lookups.
+    const surf = resolveForSurface(env, kind as Surface);
     const tools = db ? TOOLS_FOR_LAB : [];
     const result = await ai.run(
       {
         messages,
-        tier: 'reasoning', // planner needs structured reasoning; advisor/idea benefit too
+        model: surf.primary,
+        fallbackModels: surf.fallbackChain.slice(1),
+        tier: surf.tier,
         tools,
         maxTurns: 5,
         maxTokens: kind === 'planner' ? 1200 : 800,

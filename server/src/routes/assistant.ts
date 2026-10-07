@@ -6,6 +6,7 @@ import { PUBLIC_SYSTEM_PROMPT } from '../ai/agents/system-prompts';
 import { PUBLIC_TOOLS, buildHandlers } from '../ai/tools';
 import { basePublicContext, retrievePublic } from '../retrieval';
 import { rateLimit, clientIp } from '../lib/rate-limit';
+import { resolveForSurface } from '../ai/surface-config';
 import type { Env } from '../env';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -119,9 +120,13 @@ app.post('/chat', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
+    // Use public surface config (primary + fallback) regardless of tier.
+    const surf = resolveForSurface(env, 'public');
     const result = await ai.run(
       {
         messages,
+        model: surf.primary,
+        fallbackModels: surf.fallbackChain.slice(1),
         tier,
         tools,
         maxTurns: 6,
