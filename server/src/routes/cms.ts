@@ -172,6 +172,23 @@ app.get('/insights/:slug', async (c) => {
   return c.json({ item: { ...(row as any), isPublished: true } });
 });
 
+app.get('/labs', async (c) => {
+  const db = getDb(c.env as Env);
+  const category = new URL(c.req.url).searchParams.get('category') || undefined;
+  const w = category ? and(eq(schema.labItems.isPublished, true), eq(schema.labItems.category, category as any)) : eq(schema.labItems.isPublished, true);
+  const rows = await db.select().from(schema.labItems).where(w).orderBy(desc(schema.labItems.createdAt));
+  cacheHeaders(c);
+  return c.json({ items: rows });
+});
+app.get('/labs/:slug', async (c) => {
+  const db = getDb(c.env as Env);
+  const [row] = await db.select().from(schema.labItems)
+    .where(eq(schema.labItems.slug, c.req.param('slug'))).limit(1);
+  if (!row || !row.isPublished) return c.json({ error: 'Not found' }, 404);
+  cacheHeaders(c);
+  return c.json({ item: row });
+});
+
 app.get('/site', async (c) => {
   const db = getDb(c.env as Env);
   const rows = await db.select().from(schema.siteSettings);

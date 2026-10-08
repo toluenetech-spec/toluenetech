@@ -40,9 +40,9 @@ const DEFAULTS: Record<Surface, { primary: string; fallback: string; timeoutMs: 
   public:  { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 25_000, maxTokens: 900 },
   planner: { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 40_000, maxTokens: 1500 },
   idea:    { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 25_000, maxTokens: 900 },
-  admin:   { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 45_000, maxTokens: 1200 },
-  client:  { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 30_000, maxTokens: 1000 },
-  advisor: { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 30_000, maxTokens: 1000 },
+  admin:   { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 45_000, maxTokens: 1200 },
+  client:  { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 30_000, maxTokens: 1000 },
+  advisor: { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash', timeoutMs: 30_000, maxTokens: 1000 },
 };
 
 function envGet(env: Env, k: string): string | undefined {

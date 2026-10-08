@@ -14,7 +14,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import type { Env } from '../env';
-import { authAny, assertProjectOwnership } from '../lib/auth';
+import { authAny, authAdmin, assertProjectOwnership } from '../lib/auth';
 import { ApiError } from '../lib/errors';
 import { signedGetUrl } from '../lib/r2';
 
@@ -26,7 +26,6 @@ app.get('/media/:id', async (c) => {
   const [row] = await db.select().from(schema.media).where(eq(schema.media.id, c.req.param('id'))).limit(1);
   if (!row) throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' });
   if (row.visibility !== 'PUBLIC') {
-    // Private media requires auth.
     try { await authAny(c.req.raw, env); }
     catch { throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' }); }
   }
@@ -40,10 +39,11 @@ app.get('/project/:id', async (c) => {
   catch { throw new ApiError({ code: 'UNAUTHORIZED', message: 'Authentication required.' }); }
   const db = getDb(env);
   const [file] = await db.select().from(schema.projectFiles).where(eq(schema.projectFiles.id, c.req.param('id'))).limit(1);
-  if (!file) throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' });
+  if (!file || file.deletedAt) throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' });
   if (!file.projectId) throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' });
   if (auth.kind === 'client') {
-    await assertProjectOwnership(env, auth.clientId!, file.projectId);
+    if (!auth.clientId) throw new ApiError({ code: 'FORBIDDEN', message: 'Client access required.' });
+    await assertProjectOwnership(env, auth.clientId, file.projectId);
   }
   return serveFromR2(c, env, file.r2Key, file.filename, file.mimeType);
 });

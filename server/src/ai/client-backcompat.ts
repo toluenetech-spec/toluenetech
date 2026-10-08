@@ -10,7 +10,7 @@ import type { AIProvider } from './types';
 
 export function getAIProvider(env: Env, opts?: { model?: string }): AIProvider {
   if (!env.AI_PROVIDER || !env.AI_API_KEY) throw new AIConfigError('AI not configured');
-  const model = opts?.model ?? (env.AI_MODEL || 'MiniMaxAI/MiniMax-M2.7');
+  const model = opts?.model ?? (env.AI_MODEL || 'deepseek-ai/DeepSeek-V4-Flash-0731');
   const cfg = getModelConfig(model);
   switch (env.AI_PROVIDER) {
     case 'openai':    return createOpenAIProvider({ apiKey: env.AI_API_KEY, model });

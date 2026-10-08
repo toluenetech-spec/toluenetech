@@ -1,24 +1,25 @@
 /**
  * Model routing for Dahl Inference.
  *
+ * Phase 5 routing policy:
+ *   Primary: deepseek-ai/DeepSeek-V4-Flash-0731  (fast, tool-capable, cheap)
+ *   Fallback: zai-org/GLM-5.3-Flash              (fast + tool capable)
+ *
+ * MiniMax-M2.7 remains in the catalog for explicit admin selection but is
+ * NEVER auto-escalated to from primary (prevents surprise reasoning-model cost).
+ *
  * Verified available models (Dahl docs + dashboard, Oct 2026):
- *   - deepseek-ai/DeepSeek-V4-Flash-0731  : fast public chat, supports tools
- *   - MiniMaxAI/MiniMax-M2.7              : reasoning/agent/tool-calling primary
- *   - zai-org/GLM-5.3-Flash               : fallback (fast + tool capable)
+ *   - deepseek-ai/DeepSeek-V4-Flash-0731  : primary (all surfaces); tools OK
+ *   - zai-org/GLM-5.3-Flash               : fallback (all surfaces); tools OK
+ *   - MiniMaxAI/MiniMax-M2.7              : available but manual-select only
  *
  * Retired / NOT available:
  *   - moonshotai/Kimi-K2.6  — RETIRED on Dahl; DO NOT USE.
  *   - zai-org/GLM-5.2-FP8   — RETIRED.
  *   - Qwen/Qwen3.8-Flash-Next — not yet serving.
  *
- * Routing tiers:
- *   tier 'fast'      → DeepSeek-V4-Flash-0731 (public greetings, simple Q, AI Lab)
- *   tier 'standard'  → MiniMax-M2.7 (default for non-trivial chat w/ tools)
- *   tier 'reasoning' → MiniMax-M2.7 (admin copilot, client assistant, lead qual,
- *                      quotation, structured planning)
- *
  * Fallback on any error/timeout/empty: primary → GLM-5.3-Flash.
- * If GLM also fails → user-facing graceful error.
+ * If GLM also fails → user-facing graceful error (no MiniMax auto-escalation).
  */
 
 export type TaskTier = 'fast' | 'standard' | 'reasoning';
@@ -78,16 +79,22 @@ export function pickModel(env: {
   if (explicit) return explicit;
   switch (tier) {
     case 'fast':      return 'deepseek-ai/DeepSeek-V4-Flash-0731';
-    case 'standard':  return 'MiniMaxAI/MiniMax-M2.7';
-    case 'reasoning': return 'MiniMaxAI/MiniMax-M2.7';
+    case 'standard':  return 'deepseek-ai/DeepSeek-V4-Flash-0731';
+    case 'reasoning': return 'deepseek-ai/DeepSeek-V4-Flash-0731';
   }
 }
 
-/** Fallback chain: [primary, GLM]. Order ensures we never call a retired model. */
+/**
+ * Fallback chain: [primary, GLM].
+ * MiniMax is deliberately excluded from auto-fallback; admins may still pick it
+ * explicitly via AI_MODEL / AI_MODEL_REASONING / AI_MODEL_PUBLIC overrides.
+ */
 export function fallbackChain(env: { AI_MODEL_FALLBACK?: string }, primaryId: string): string[] {
-  const fb = env.AI_MODEL_FALLBACK || 'zai-org/GLM-5.3-Flash';
+  // Never auto-fallback to MiniMax.
+  const fb = env.AI_MODEL_FALLBACK;
+  const fallback = (fb && !/minimax/i.test(fb)) ? fb : 'zai-org/GLM-5.3-Flash';
   const ordered: string[] = [primaryId];
-  if (fb && fb !== primaryId) ordered.push(fb);
+  if (fallback && fallback !== primaryId) ordered.push(fallback);
   return ordered;
 }
 

@@ -1,11 +1,14 @@
 import {
-  pgTable, pgEnum, text, varchar, boolean, integer,
+  pgTable, pgEnum, text, varchar, boolean, integer, numeric,
   timestamp, jsonb, doublePrecision, uniqueIndex, index,
 } from 'drizzle-orm/pg-core';
 
 /* ---------- Enums ---------- */
 export const availabilityEnum = pgEnum('availability', ['AVAILABLE', 'LIMITED', 'UNAVAILABLE']);
-export const projectStatusEnum = pgEnum('project_status', ['ACTIVE', 'PAUSED', 'COMPLETED', 'ARCHIVED']);
+export const projectStatusEnum = pgEnum('project_status', [
+  'PLANNING', 'IN_PROGRESS', 'ACTIVE', 'ON_HOLD', 'PAUSED', 'REVIEW',
+  'COMPLETED', 'CANCELLED', 'ARCHIVED',
+]);
 export const publishStateEnum = pgEnum('publish_state', ['DRAFT', 'PUBLISHED', 'ARCHIVED']);
 export const productStatusEnum = pgEnum('product_status', ['IDEA', 'PROTOTYPE', 'IN_DEV', 'BETA', 'LIVE', 'ARCHIVED']);
 export const labCategoryEnum = pgEnum('lab_category', ['AI', 'EXPERIMENT', 'TOOL', 'RESEARCH']);
@@ -14,8 +17,12 @@ export const leadStatusEnum = pgEnum('lead_status', [
   'NEGOTIATION', 'WON', 'LOST', 'ARCHIVED',
 ]);
 export const clientStatusEnum = pgEnum('client_status', ['ACTIVE', 'INACTIVE']);
-export const milestoneStatusEnum = pgEnum('milestone_status', ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'APPROVED']);
+export const milestoneStatusEnum = pgEnum('milestone_status', ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'APPROVED', 'REJECTED']);
 export const taskStatusEnum = pgEnum('task_status', ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED']);
+export const taskPriorityEnum = pgEnum('task_priority', ['LOW', 'MEDIUM', 'HIGH', 'URGENT']);
+export const invoiceStatusEnum = pgEnum('invoice_status', ['DRAFT', 'SENT', 'VIEWED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE', 'CANCELLED', 'VOID']);
+export const paymentStatusEnum = pgEnum('payment_status', ['PENDING', 'SUCCESSFUL', 'FAILED', 'REFUNDED']);
+export const invoiceItemKindEnum = pgEnum('invoice_item_kind', ['SERVICE', 'MILESTONE', 'HOURLY', 'PRODUCT', 'DISCOUNT', 'TAX', 'CUSTOM']);
 export const messageContextEnum = pgEnum('message_context', ['PROJECT', 'LEAD', 'GENERAL']);
 export const auditActionEnum = pgEnum('audit_action', [
   'LOGIN_SUCCESS', 'LOGIN_FAILURE', 'LOGOUT',
@@ -24,6 +31,10 @@ export const auditActionEnum = pgEnum('audit_action', [
   'FILE_UPLOAD', 'FILE_DELETE',
   'PERMISSION_CHANGE', 'PASSWORD_CHANGE', 'ACCESS_CODE_GENERATED',
   'LEAD_CONVERT',
+  'MILESTONE_APPROVE', 'MILESTONE_REJECT',
+  'INVOICE_SEND', 'INVOICE_VIEW',
+  'PAYMENT_VERIFY',
+  'MESSAGE_SEND', 'NOTIFICATION_READ',
 ]);
 export const fileVisibilityEnum = pgEnum('file_visibility', ['PUBLIC', 'PRIVATE']);
 
@@ -313,12 +324,17 @@ export const clientProjects = pgTable('client_projects', {
   title: varchar('title', { length: 220 }).notNull(),
   description: text('description'),
   status: projectStatusEnum('status').notNull().default('ACTIVE'),
+  priority: taskPriorityEnum('priority').notNull().default('MEDIUM'),
   progress: integer('progress').notNull().default(0),        // 0-100
+  assignee: varchar('assignee', { length: 128 }),
   startDate: timestamp('start_date', { mode: 'date', withTimezone: true }),
   dueDate: timestamp('due_date', { mode: 'date', withTimezone: true }),
+  totalCents: integer('total_cents').default(0),
+  currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+  archivedAt: timestamp('archived_at', { mode: 'date', withTimezone: true }),
   createdAt: now('created_at'),
   updatedAt: now('updated_at'),
-}, (t) => ({ clientIdx: index('cp_client_idx').on(t.clientId) }));
+}, (t) => ({ clientIdx: index('cp_client_idx').on(t.clientId), statusIdx: index('cp_status_idx').on(t.clientId, t.status) }));
 
 export const milestones = pgTable('milestones', {
   id: id('id'),
@@ -327,10 +343,27 @@ export const milestones = pgTable('milestones', {
   description: text('description'),
   dueDate: timestamp('due_date', { mode: 'date', withTimezone: true }),
   status: milestoneStatusEnum('status').notNull().default('PENDING'),
+  amountCents: integer('amount_cents'),
+  approvedAt: timestamp('approved_at', { mode: 'date', withTimezone: true }),
+  approvedBy: varchar('approved_by', { length: 128 }),
+  rejectionReason: text('rejection_reason'),
   order: integer('order').notNull().default(0),
   createdAt: now('created_at'),
   updatedAt: now('updated_at'),
-}, (t) => ({ projectIdx: index('ms_proj_idx').on(t.projectId) }));
+}, (t) => ({ projectIdx: index('ms_proj_idx').on(t.projectId), projStatusIdx: index('ms_proj_status_idx').on(t.projectId, t.status) }));
+
+export const milestoneApprovals = pgTable('milestone_approvals', {
+  id: id('id'),
+  milestoneId: varchar('milestone_id', { length: 36 }).notNull(),
+  projectId: varchar('project_id', { length: 36 }).notNull(),
+  clientId: varchar('client_id', { length: 36 }).notNull(),
+  action: varchar('action', { length: 20 }).notNull(),          // APPROVED | REJECTED
+  comment: text('comment'),
+  actorType: varchar('actor_type', { length: 16 }).notNull(),   // client|admin|system
+  actorId: varchar('actor_id', { length: 128 }),
+  actorName: varchar('actor_name', { length: 160 }),
+  createdAt: now('created_at'),
+}, (t) => ({ milestoneIdx: index('ma_milestone_idx').on(t.milestoneId), projIdx: index('ma_proj_idx').on(t.projectId) }));
 
 export const tasks = pgTable('tasks', {
   id: id('id'),
@@ -339,11 +372,14 @@ export const tasks = pgTable('tasks', {
   title: varchar('title', { length: 240 }).notNull(),
   description: text('description'),
   status: taskStatusEnum('status').notNull().default('TODO'),
+  priority: taskPriorityEnum('priority').notNull().default('MEDIUM'),
   assignee: varchar('assignee', { length: 120 }),
   dueDate: timestamp('due_date', { mode: 'date', withTimezone: true }),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }),
+  completedBy: varchar('completed_by', { length: 128 }),
   createdAt: now('created_at'),
   updatedAt: now('updated_at'),
-}, (t) => ({ projectIdx: index('tk_proj_idx').on(t.projectId) }));
+}, (t) => ({ projectIdx: index('tk_proj_idx').on(t.projectId), projStatusIdx: index('tk_proj_status_idx').on(t.projectId, t.status) }));
 
 export const projectFiles = pgTable('project_files', {
   id: id('id'),
@@ -356,34 +392,97 @@ export const projectFiles = pgTable('project_files', {
   sizeBytes: integer('size_bytes'),
   mimeType: varchar('mime_type', { length: 120 }),
   visibility: fileVisibilityEnum('visibility').notNull().default('PRIVATE'),
+  replaceOf: varchar('replace_of', { length: 36 }),           // id of previous version
+  deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
   createdAt: now('created_at'),
-}, (t) => ({ projectIdx: index('pf_proj_idx').on(t.projectId), clientIdx: index('pf_client_idx').on(t.clientId) }));
+  updatedAt: now('updated_at'),
+}, (t) => ({ projectIdx: index('pf_proj_idx').on(t.projectId), clientIdx: index('pf_client_idx').on(t.clientId), projVisIdx: index('pf_proj_vis_idx').on(t.projectId, t.deletedAt) }));
 
 export const messages = pgTable('messages', {
   id: id('id'),
   contextType: messageContextEnum('context_type').notNull().default('GENERAL'),
   contextId: varchar('context_id', { length: 36 }),           // projectId or leadId
-  fromUid: varchar('from_uid', { length: 128 }),              // null when from assistant
+  threadId: varchar('thread_id', { length: 36 }),
+  fromUid: varchar('from_uid', { length: 128 }),              // admin uid or client id prefix
+  fromClientId: varchar('from_client_id', { length: 36 }),
   fromName: varchar('from_name', { length: 160 }).notNull(),
+  toUid: varchar('to_uid', { length: 128 }),                  // recipient admin uid
+  toClientId: varchar('to_client_id', { length: 36 }),
+  toName: varchar('to_name', { length: 160 }),
+  isFromClient: boolean('is_from_client').notNull().default(false),
   body: text('body').notNull(),
-  attachments: jsonb('attachments').$type<{ filename: string; r2Key: string }[]>().default([]),
+  attachments: jsonb('attachments').$type<{ filename: string; r2Key: string; sizeBytes?: number; mimeType?: string }[]>().default([]),
   isRead: boolean('is_read').notNull().default(false),
+  readAt: timestamp('read_at', { mode: 'date', withTimezone: true }),
   createdAt: now('created_at'),
-}, (t) => ({ ctxIdx: index('msg_ctx_idx').on(t.contextType, t.contextId) }));
+}, (t) => ({
+  ctxIdx: index('msg_ctx_idx').on(t.contextType, t.contextId),
+  threadIdx: index('msg_thread_idx').on(t.threadId),
+  toAdminIdx: index('msg_to_admin_idx').on(t.toUid, t.isRead),
+  toClientIdx: index('msg_to_client_idx').on(t.toClientId, t.isRead),
+}));
 
 export const invoices = pgTable('invoices', {
   id: id('id'),
   clientId: varchar('client_id', { length: 36 }).notNull(),
   projectId: varchar('project_id', { length: 36 }),
   number: varchar('number', { length: 40 }).notNull().unique(),
+  subtotalCents: integer('subtotal_cents').notNull().default(0),
+  taxCents: integer('tax_cents').notNull().default(0),
+  discountCents: integer('discount_cents').notNull().default(0),
   amountCents: integer('amount_cents').notNull(),
   currency: varchar('currency', { length: 3 }).notNull().default('USD'),
-  status: varchar('status', { length: 30 }).notNull().default('DRAFT'), // DRAFT/SENT/PAID/VOID
+  status: varchar('status', { length: 30 }).notNull().default('DRAFT'), // DRAFT/SENT/VIEWED/PARTIALLY_PAID/PAID/OVERDUE/CANCELLED/VOID
+  notes: text('notes'),
   dueDate: timestamp('due_date', { mode: 'date', withTimezone: true }),
+  issuedAt: timestamp('issued_at', { mode: 'date', withTimezone: true }),
+  viewedAt: timestamp('viewed_at', { mode: 'date', withTimezone: true }),
   paidAt: timestamp('paid_at', { mode: 'date', withTimezone: true }),
+  cancelledAt: timestamp('cancelled_at', { mode: 'date', withTimezone: true }),
+  cancellationReason: text('cancellation_reason'),
   pdfR2Key: varchar('pdf_r2_key', { length: 500 }),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
   createdAt: now('created_at'),
-});
+}, (t) => ({
+  clientIdx: index('inv_client_idx').on(t.clientId),
+  projectIdx: index('inv_project_idx').on(t.projectId),
+  statusIdx: index('inv_status_idx').on(t.status),
+}));
+
+export const invoiceItems = pgTable('invoice_items', {
+  id: id('id'),
+  invoiceId: varchar('invoice_id', { length: 36 }).notNull(),
+  kind: invoiceItemKindEnum('kind').notNull().default('CUSTOM'),
+  description: text('description').notNull(),
+  quantity: doublePrecision('quantity').notNull().default(1),
+  unitPriceCents: integer('unit_price_cents').notNull().default(0),
+  amountCents: integer('amount_cents').notNull().default(0),
+  order: integer('order_idx').notNull().default(0),
+  createdAt: now('created_at'),
+}, (t) => ({ invoiceIdx: index('ii_invoice_idx').on(t.invoiceId) }));
+
+export const payments = pgTable('payments', {
+  id: id('id'),
+  invoiceId: varchar('invoice_id', { length: 36 }),
+  clientId: varchar('client_id', { length: 36 }).notNull(),
+  projectId: varchar('project_id', { length: 36 }),
+  provider: varchar('provider', { length: 32 }).notNull().default('flutterwave'),
+  providerRef: varchar('provider_ref', { length: 160 }),
+  providerTransactionId: varchar('provider_transaction_id', { length: 160 }),
+  amountCents: integer('amount_cents').notNull(),
+  currency: varchar('currency', { length: 3 }).notNull().default('USD'),
+  status: paymentStatusEnum('status').notNull().default('PENDING'),
+  verifiedAt: timestamp('verified_at', { mode: 'date', withTimezone: true }),
+  verificationMeta: jsonb('verification_meta').$type<Record<string, unknown>>().default({}),
+  failureReason: text('failure_reason'),
+  idempotencyKey: varchar('idempotency_key', { length: 128 }).unique(),
+  createdAt: now('created_at'),
+  updatedAt: now('updated_at'),
+}, (t) => ({
+  clientIdx: index('pay_client_idx').on(t.clientId),
+  invoiceIdx: index('pay_invoice_idx').on(t.invoiceId),
+  providerRefIdx: index('pay_provider_ref_idx').on(t.providerRef),
+}));
 
 /* ---------- Media library ---------- */
 export const media = pgTable('media', {

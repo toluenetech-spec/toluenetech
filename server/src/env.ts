@@ -52,4 +52,11 @@ export interface Env {
   R2_ACCESS_KEY_ID?: string;
   R2_SECRET_ACCESS_KEY?: string;
   R2_BUCKET_NAME?: string;
+
+  // Flutterwave (payments) — optional; if absent, payment endpoints return 503
+  // rather than creating fake records. FLW_PUBLIC_KEY is safe in the browser
+  // for initialising the checkout; FLW_SECRET_KEY stays server-only.
+  FLW_PUBLIC_KEY?: string;
+  FLW_SECRET_KEY?: string;
+  FLW_SECRET_HASH?: string;
 }

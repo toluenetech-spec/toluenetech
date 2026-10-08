@@ -145,9 +145,13 @@ const TOOL_FIELDS = ['name','category','logoUrl','description','websiteUrl','isP
 // Clients (admin edits name/email/phone/company/status; accessCode is set via dedicated endpoint)
 const CLIENT_FIELDS = ['userId','name','email','phone','company','status'] as const;
 // Client projects (jobs)
-const CP_FIELDS = ['clientId','publicProjectId','title','description','status','progress','startDate','dueDate'] as const;
+const CP_FIELDS = ['clientId','publicProjectId','title','description','status','priority','progress','assignee','startDate','dueDate','totalCents','currency'] as const;
 // Milestones
-const MS_FIELDS = ['projectId','title','description','dueDate','status','order'] as const;
+const MS_FIELDS = ['projectId','title','description','dueDate','status','order','amountCents'] as const;
+// Tasks
+const TASK_FIELDS = ['projectId','milestoneId','title','description','status','priority','assignee','dueDate'] as const;
+// Lab items
+const LAB_FIELDS = ['slug','title','description','category','tech','demoUrl','status','screenshots','isPublished','publishedAt'] as const;
 
 function genCrud<List, Item>(opts: {
   entity: string;
@@ -701,7 +705,9 @@ app.post('/milestones', async (c) => {
   const [row] = await db.insert(schema.milestones).values({
     id: uid(), projectId: b.projectId, title: String(b.title).slice(0, 220),
     description: b.description || null, dueDate: b.dueDate || null,
-    status: String(b.status || 'PENDING').toUpperCase() as any, order: Number.isInteger(b.order) ? b.order : 0,
+    status: String(b.status || 'PENDING').toUpperCase() as any,
+    amountCents: Number.isInteger(b.amountCents) ? b.amountCents : null,
+    order: Number.isInteger(b.order) ? b.order : 0,
   }).returning();
   writeAudit(env, { action: 'CREATE', entity: 'milestones', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { projectId: row.projectId } });
   return c.json(row, 201);
@@ -727,6 +733,258 @@ app.delete('/milestones/:id', async (c) => {
   await db.delete(schema.milestones).where(eq(schema.milestones.id, id));
   writeAudit(env, { action: 'DELETE', entity: 'milestones', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
+});
+
+// Milestone approval history.
+app.get('/milestones/:id/approvals', async (c) => {
+  const db = getDb(c.env as Env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.milestones, id, 'Milestone not found.');
+  const items = await db.select().from(schema.milestoneApprovals).where(eq(schema.milestoneApprovals.milestoneId, id)).orderBy(desc(schema.milestoneApprovals.createdAt));
+  return c.json({ items });
+});
+
+// ---------- Tasks ----------
+app.get('/tasks', async (c) => {
+  const db = getDb(c.env as Env);
+  const projectId = new URL(c.req.url).searchParams.get('projectId') || undefined;
+  const milestoneId = new URL(c.req.url).searchParams.get('milestoneId') || undefined;
+  const w = combine(projectId ? eq(schema.tasks.projectId, projectId) : undefined, milestoneId ? eq(schema.tasks.milestoneId, milestoneId) : undefined);
+  const items = await db.select().from(schema.tasks).where(w).orderBy(asc(schema.tasks.createdAt));
+  return c.json({ items, total: items.length });
+});
+app.post('/tasks', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  if (!b.projectId || !b.title) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'projectId and title are required.' });
+  await getOr404(db, schema.clientProjects, b.projectId, 'Project not found.');
+  if (b.milestoneId) await getOr404(db, schema.milestones, b.milestoneId, 'Milestone not found.');
+  const [row] = await db.insert(schema.tasks).values({
+    id: uid(), projectId: b.projectId, milestoneId: b.milestoneId || null,
+    title: String(b.title).slice(0, 240), description: b.description || null,
+    status: String(b.status || 'TODO').toUpperCase() as any,
+    priority: String(b.priority || 'MEDIUM').toUpperCase() as any,
+    assignee: sanitizeStr(b.assignee, 120), dueDate: b.dueDate || null,
+  }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'tasks', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { projectId: row.projectId } });
+  return c.json(row, 201);
+});
+app.put('/tasks/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env); const id = c.req.param('id');
+  await getOr404(db, schema.tasks, id, 'Task not found.');
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, TASK_FIELDS), updatedAt: now() };
+  if (patch.status) {
+    patch.status = String(patch.status).toUpperCase();
+    if (patch.status === 'DONE') { patch.completedAt = now(); patch.completedBy = auth(c).uid; }
+    else { patch.completedAt = null; patch.completedBy = null; }
+  }
+  if (patch.priority) patch.priority = String(patch.priority).toUpperCase();
+  const [row] = await db.update(schema.tasks).set(patch).where(eq(schema.tasks.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'tasks', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
+  return c.json(row);
+});
+app.delete('/tasks/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env); const id = c.req.param('id');
+  await getOr404(db, schema.tasks, id, 'Task not found.');
+  await db.delete(schema.tasks).where(eq(schema.tasks.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'tasks', entityId: id, auth: auth(c), req: c.req.raw });
+  return c.json({ ok: true });
+});
+
+// ---------- Lab items ----------
+genCrud({
+  entity: 'lab', table: schema.labItems, listOrder: desc(schema.labItems.createdAt),
+  searchCols: [schema.labItems.title, schema.labItems.description, schema.labItems.slug],
+  fields: LAB_FIELDS, slugPrefix: 'lab',
+  mapInsert: (b) => ({
+    slug: b.slug || slugify(b.title || '', 'lab'),
+    title: b.title || '', description: b.description || null,
+    category: String(b.category || 'EXPERIMENT').toUpperCase(),
+    tech: Array.isArray(b.tech) ? b.tech.slice(0, 30) : [],
+    demoUrl: b.demoUrl || null,
+    status: b.status || 'active',
+    screenshots: Array.isArray(b.screenshots) ? b.screenshots.slice(0, 20) : [],
+    isPublished: !!b.isPublished,
+    publishedAt: b.publishedAt || (b.isPublished ? now() : null),
+  }),
+});
+
+// ---------- Project files (admin upload) ----------
+app.post('/projects/:id/files', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const a = auth(c);
+  const pid = c.req.param('id');
+  await getOr404(db, schema.clientProjects, pid, 'Project not found.');
+  const bucket = env.ASSETS;
+  if (!bucket) throw new ApiError({ code: 'SERVICE_UNAVAILABLE', message: 'Storage not configured.' });
+  const contentType = (c.req.header('content-type') || 'application/octet-stream').split(';')[0].trim();
+  const contentLengthStr = c.req.header('content-length');
+  const contentLength = contentLengthStr ? parseInt(contentLengthStr, 10) : null;
+  const filename = (c.req.query('filename') || 'upload').slice(0, 160);
+  const visibility = (c.req.query('visibility') || 'PRIVATE').toUpperCase() === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE';
+  // Re-use r2 lib allowed set & limit
+  const { validateUpload, makeKey, limits } = await import('../lib/r2');
+  const mimeErr = validateUpload(contentType, contentLength);
+  if (mimeErr) throw new ApiError({ code: 'UNSUPPORTED_MEDIA_TYPE', message: mimeErr });
+  const key = makeKey(`projects/${pid}/admin`, filename);
+  const body = await c.req.raw.arrayBuffer();
+  if (body.byteLength > limits.maxBytes) throw new ApiError({ code: 'PAYLOAD_TOO_LARGE', message: 'File too large.' });
+  await bucket.put(key, body, { httpMetadata: { contentType } });
+  // Soft-delete prior file with same filename if asked
+  if (c.req.query('replace')) {
+    const [old] = await db.select().from(schema.projectFiles)
+      .where(and(eq(schema.projectFiles.projectId, pid), eq(schema.projectFiles.filename, filename), eq(schema.projectFiles.deletedAt, null as any)))
+      .limit(1);
+    if (old) await db.update(schema.projectFiles).set({ deletedAt: now() as any, updatedAt: now() }).where(eq(schema.projectFiles.id, old.id));
+  }
+  const [p] = await db.select({ clientId: schema.clientProjects.clientId }).from(schema.clientProjects).where(eq(schema.clientProjects.id, pid)).limit(1);
+  const [file] = await db.insert(schema.projectFiles).values({
+    id: uid(), projectId: pid, clientId: p.clientId,
+    uploadedBy: a.uid, uploadedByRole: 'admin',
+    filename, r2Key: key, sizeBytes: body.byteLength, mimeType: contentType,
+    visibility: visibility as any,
+  }).returning();
+  writeAudit(env, { action: 'FILE_UPLOAD', entity: 'project_files', entityId: file.id, auth: a, req: c.req.raw, meta: { sizeBytes: body.byteLength, mimeType: contentType, visibility } });
+  // Notify client.
+  await db.insert(schema.notifications).values({
+    id: uid(), clientId: p.clientId, type: 'file_uploaded',
+    title: 'New file shared with you',
+    body: `A new file "${filename}" was shared in your project.`,
+    link: `/portal/projects/${pid}?tab=files`,
+  });
+  return c.json(file, 201);
+});
+app.delete('/projects/:id/files/:fid', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const fid = c.req.param('fid');
+  const [f] = await db.select().from(schema.projectFiles).where(eq(schema.projectFiles.id, fid)).limit(1);
+  if (!f || f.projectId !== c.req.param('id')) throw new ApiError({ code: 'NOT_FOUND', message: 'File not found.' });
+  // Soft delete (do not destroy R2 so audit trail remains intact).
+  await db.update(schema.projectFiles).set({ deletedAt: now() as any, updatedAt: now() }).where(eq(schema.projectFiles.id, fid));
+  writeAudit(env, { action: 'FILE_DELETE', entity: 'project_files', entityId: fid, auth: auth(c), req: c.req.raw });
+  return c.json({ ok: true });
+});
+
+// ---------- Project messages (admin) ----------
+app.get('/projects/:id/messages', async (c) => {
+  const db = getDb(c.env as Env);
+  const pid = c.req.param('id');
+  await getOr404(db, schema.clientProjects, pid, 'Project not found.');
+  const items = await db.select().from(schema.messages)
+    .where(and(eq(schema.messages.contextType, 'PROJECT'), eq(schema.messages.contextId, pid)))
+    .orderBy(asc(schema.messages.createdAt));
+  return c.json({ items, total: items.length });
+});
+app.post('/projects/:id/messages', async (c) => {
+  const env = c.env as Env; const db = getDb(env); const a = auth(c);
+  const pid = c.req.param('id');
+  const [project] = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.id, pid)).limit(1);
+  if (!project) throw new ApiError({ code: 'NOT_FOUND', message: 'Project not found.' });
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const body = typeof b.body === 'string' ? b.body.trim().slice(0, 4000) : '';
+  if (!body) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Message body is required.' });
+  const threadId = typeof b.threadId === 'string' && /^[0-9a-f-]{36}$/.test(b.threadId) ? b.threadId : uid();
+  const attachments = Array.isArray(b.attachments)
+    ? b.attachments.filter((x: any) => x && typeof x.filename === 'string' && typeof x.r2Key === 'string').slice(0, 10).map((x: any) => ({ filename: String(x.filename).slice(0, 200), r2Key: String(x.r2Key).slice(0, 500) }))
+    : [];
+  const [row] = await db.insert(schema.messages).values({
+    id: uid(), contextType: 'PROJECT', contextId: pid, threadId,
+    fromUid: a.uid, fromClientId: null, fromName: a.name || a.email,
+    toUid: null, toClientId: project.clientId, toName: null,
+    isFromClient: false, body, attachments, isRead: false,
+  }).returning();
+  writeAudit(env, { action: 'MESSAGE_SEND', entity: 'messages', entityId: row.id, auth: a, req: c.req.raw, meta: { projectId: pid } });
+  await db.insert(schema.notifications).values({
+    id: uid(), clientId: project.clientId, type: 'message_new',
+    title: `New message in "${project.title}"`,
+    body: body.slice(0, 200),
+    link: `/portal/projects/${pid}?tab=messages`,
+  });
+  return c.json(row, 201);
+});
+
+// ---------- Invoices (admin) ----------
+app.get('/invoices', async (c) => {
+  const db = getDb(c.env as Env);
+  const clientId = new URL(c.req.url).searchParams.get('clientId') || undefined;
+  const projectId = new URL(c.req.url).searchParams.get('projectId') || undefined;
+  const status = new URL(c.req.url).searchParams.get('status') || undefined;
+  const w = combine(
+    clientId ? eq(schema.invoices.clientId, clientId) : undefined,
+    projectId ? eq(schema.invoices.projectId, projectId) : undefined,
+    status ? eq(schema.invoices.status, status.toUpperCase()) : undefined,
+  );
+  const { items, total } = await counted(db, schema.invoices, w, desc(schema.invoices.createdAt));
+  return c.json({ items, total });
+});
+app.get('/invoices/:id', async (c) => {
+  const db = getDb(c.env as Env);
+  const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, c.req.param('id'))).limit(1);
+  if (!inv) throw new ApiError({ code: 'NOT_FOUND', message: 'Invoice not found.' });
+  const items = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, inv.id)).orderBy(asc(schema.invoiceItems.order));
+  return c.json({ item: inv, items });
+});
+app.post('/invoices', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  if (!b.clientId) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'clientId is required.' });
+  await getOr404(db, schema.clients, b.clientId, 'Client not found.');
+  if (b.projectId) await getOr404(db, schema.clientProjects, b.projectId, 'Project not found.');
+  // Generate invoice number.
+  const [last] = await db.select({ n: schema.invoices.number }).from(schema.invoices).orderBy(desc(schema.invoices.createdAt)).limit(1);
+  const n = last?.n ? parseInt(String(last.n).replace(/\D/g, ''), 10) || 0 : 0;
+  const number = `INV-${String(n + 1).padStart(5, '0')}`;
+  const lineItems: any[] = Array.isArray(b.items) ? b.items : [];
+  const subtotal = lineItems.reduce((s: number, li: any) => s + (Number(li.amountCents) || 0), 0);
+  const tax = Number.isInteger(b.taxCents) ? b.taxCents : 0;
+  const disc = Number.isInteger(b.discountCents) ? b.discountCents : 0;
+  const total = Math.max(0, subtotal + tax - disc);
+  const [inv] = await db.insert(schema.invoices).values({
+    id: uid(), clientId: b.clientId, projectId: b.projectId || null,
+    number, subtotalCents: subtotal, taxCents: tax, discountCents: disc,
+    amountCents: b.amountCents ?? total,
+    currency: b.currency || 'USD',
+    status: b.status || 'DRAFT', dueDate: b.dueDate || null, notes: b.notes || null,
+    issuedAt: b.status === 'SENT' ? now() : null,
+  }).returning();
+  for (let i = 0; i < lineItems.length; i++) {
+    const li = lineItems[i];
+    await db.insert(schema.invoiceItems).values({
+      id: uid(), invoiceId: inv.id,
+      kind: (String(li.kind || 'CUSTOM').toUpperCase() as any),
+      description: String(li.description || '').slice(0, 500) || 'Item',
+      quantity: Number(li.quantity) || 1,
+      unitPriceCents: Number(li.unitPriceCents) || 0,
+      amountCents: Number(li.amountCents) || 0,
+      order: i,
+    });
+  }
+  writeAudit(env, { action: 'CREATE', entity: 'invoices', entityId: inv.id, auth: auth(c), req: c.req.raw, meta: { number, status: inv.status } });
+  if (inv.status === 'SENT') {
+    await db.insert(schema.notifications).values({
+      id: uid(), clientId: b.clientId, type: 'invoice_sent',
+      title: `New invoice ${number}`,
+      body: `An invoice for ${(inv.amountCents / 100).toFixed(2)} ${inv.currency} has been issued.`,
+      link: `/portal/invoices/${inv.id}`,
+    });
+  }
+  return c.json(inv, 201);
+});
+app.put('/invoices/:id/send', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const id = c.req.param('id');
+  const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id)).limit(1);
+  if (!inv) throw new ApiError({ code: 'NOT_FOUND', message: 'Invoice not found.' });
+  const [u] = await db.update(schema.invoices).set({ status: 'SENT' as any, issuedAt: now() }).where(eq(schema.invoices.id, id)).returning();
+  await db.insert(schema.notifications).values({
+    id: uid(), clientId: inv.clientId, type: 'invoice_sent',
+    title: `Invoice ${inv.number} sent`,
+    body: `An invoice for ${(u.amountCents / 100).toFixed(2)} ${u.currency} is now available.`,
+    link: `/portal/invoices/${inv.id}`,
+  });
+  writeAudit(env, { action: 'INVOICE_SEND', entity: 'invoices', entityId: id, auth: auth(c), req: c.req.raw });
+  return c.json(u);
 });
 
 // ---------- Site settings ----------

@@ -1,4 +1,4 @@
-import { ilike, or, eq, desc, and, gte, sql } from 'drizzle-orm';
+import { ilike, or, eq, desc, and, gte, sql, isNull } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import type { ToolSpec, ToolHandler, ToolContext } from '../client';
 import { rateLimit } from '../../lib/rate-limit';
@@ -384,6 +384,135 @@ export const clientFilesHandler: ToolHandler = async (args, ctx) => {
   })) } };
 };
 
+/* ---------- Admin extended (Phase 5): CRM / Clients / Projects / Tasks / Files / Messages / Invoices / Analytics ---------- */
+// All admin tools are READ-only. Mutations (sending messages, creating invoices,
+// updating status) require explicit admin confirmation outside the tool call
+// (assistant drafts a response; admin clicks apply in the UI). This enforces
+// Phase 5.3 no-silent-side-effects and Phase 5.4 destructive-op confirm.
+
+export const toolAdminListClients: ToolSpec = {
+  name: 'admin_list_clients',
+  description: 'List clients (paginated).',
+  parameters: { type: 'object', properties: { limit: { type: 'number' }, status: { type: 'string' } }, required: [] },
+};
+export const toolAdminListClientProjects: ToolSpec = {
+  name: 'admin_list_client_projects',
+  description: 'List client projects, optionally filtered by clientId or status.',
+  parameters: { type: 'object', properties: { clientId: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } }, required: [] },
+};
+export const toolAdminGetProject: ToolSpec = {
+  name: 'admin_get_project',
+  description: 'Get a client project by id, with milestones, tasks, recent files and messages.',
+  parameters: { type: 'object', properties: { projectId: { type: 'string' } }, required: ['projectId'] },
+};
+export const toolAdminListInvoices: ToolSpec = {
+  name: 'admin_list_invoices',
+  description: 'List invoices (recent first).',
+  parameters: { type: 'object', properties: { clientId: { type: 'string' }, status: { type: 'string' }, limit: { type: 'number' } }, required: [] },
+};
+export const toolAdminAnalyticsOverview: ToolSpec = {
+  name: 'admin_analytics_overview',
+  description: 'High-level analytics snapshot: leads, clients, projects, invoices, AI usage (24h).',
+  parameters: { type: 'object', properties: {}, required: [] },
+};
+
+function isAdmin(ctx: ToolContext): boolean { return ctx.kind === 'admin'; }
+
+export const adminListClientsHandler: ToolHandler = async (args, ctx) => {
+  if (!isAdmin(ctx)) return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const limit = Math.min(50, Math.max(1, Number(args.limit) || 20));
+  const status = typeof args.status === 'string' ? args.status : undefined;
+  const w = status ? eq(schema.clients.status, status as any) : undefined;
+  const rows = await db.select({
+    id: schema.clients.id, name: schema.clients.name, email: schema.clients.email,
+    company: schema.clients.company, status: schema.clients.status, lastLoginAt: schema.clients.lastLoginAt,
+    createdAt: schema.clients.createdAt,
+  }).from(schema.clients).where(w).orderBy(desc(schema.clients.createdAt)).limit(limit);
+  return { result: rows };
+};
+
+export const adminListClientProjectsHandler: ToolHandler = async (args, ctx) => {
+  if (!isAdmin(ctx)) return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const limit = Math.min(50, Math.max(1, Number(args.limit) || 20));
+  const wheres: any[] = [];
+  if (typeof args.clientId === 'string') wheres.push(eq(schema.clientProjects.clientId, args.clientId));
+  if (typeof args.status === 'string') wheres.push(eq(schema.clientProjects.status, String(args.status).toUpperCase() as any));
+  const rows = await db.select().from(schema.clientProjects)
+    .where(wheres.length ? and(...wheres) : undefined)
+    .orderBy(desc(schema.clientProjects.createdAt)).limit(limit);
+  return { result: rows };
+};
+
+export const adminGetProjectHandler: ToolHandler = async (args, ctx) => {
+  if (!isAdmin(ctx)) return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const pid = String(args.projectId ?? '');
+  const [p] = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.id, pid)).limit(1);
+  if (!p) return { result: { error: 'Project not found.' } };
+  const [milestones, tasks, files, messages] = await Promise.all([
+    db.select().from(schema.milestones).where(eq(schema.milestones.projectId, pid)).orderBy(schema.milestones.order),
+    db.select({ id: schema.tasks.id, title: schema.tasks.title, status: schema.tasks.status, priority: schema.tasks.priority, assignee: schema.tasks.assignee, dueDate: schema.tasks.dueDate }).from(schema.tasks).where(eq(schema.tasks.projectId, pid)).limit(50),
+    db.select({ id: schema.projectFiles.id, filename: schema.projectFiles.filename, sizeBytes: schema.projectFiles.sizeBytes, mimeType: schema.projectFiles.mimeType, uploadedByRole: schema.projectFiles.uploadedByRole, createdAt: schema.projectFiles.createdAt }).from(schema.projectFiles).where(and(eq(schema.projectFiles.projectId, pid), isNull(schema.projectFiles.deletedAt))).orderBy(desc(schema.projectFiles.createdAt)).limit(20),
+    db.select({ id: schema.messages.id, fromName: schema.messages.fromName, body: schema.messages.body, isFromClient: schema.messages.isFromClient, createdAt: schema.messages.createdAt }).from(schema.messages).where(and(eq(schema.messages.contextType, 'PROJECT'), eq(schema.messages.contextId, pid))).orderBy(desc(schema.messages.createdAt)).limit(10),
+  ]);
+  return { result: { project: p, milestones, tasks, files, recentMessages: messages.slice().reverse() } };
+};
+
+export const adminListInvoicesHandler: ToolHandler = async (args, ctx) => {
+  if (!isAdmin(ctx)) return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const limit = Math.min(50, Math.max(1, Number(args.limit) || 20));
+  const wheres: any[] = [];
+  if (typeof args.clientId === 'string') wheres.push(eq(schema.invoices.clientId, args.clientId));
+  if (typeof args.status === 'string') wheres.push(eq(schema.invoices.status, String(args.status).toUpperCase()));
+  const rows = await db.select({
+    id: schema.invoices.id, number: schema.invoices.number, clientId: schema.invoices.clientId,
+    projectId: schema.invoices.projectId, amountCents: schema.invoices.amountCents, currency: schema.invoices.currency,
+    status: schema.invoices.status, dueDate: schema.invoices.dueDate, paidAt: schema.invoices.paidAt, createdAt: schema.invoices.createdAt,
+  }).from(schema.invoices).where(wheres.length ? and(...wheres) : undefined)
+    .orderBy(desc(schema.invoices.createdAt)).limit(limit);
+  return { result: rows };
+};
+
+export const adminAnalyticsOverviewHandler: ToolHandler = async (_args, ctx) => {
+  if (!isAdmin(ctx)) return { result: { error: 'Unauthorized' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [totalLeads, newLeads24h, wonLeads, totalClients, totalProjects, activeProjects, unpaidInvoices, ai24h] = await Promise.all([
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.leads).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.leads).where(gte(schema.leads.createdAt, dayAgo)).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.leads).where(eq(schema.leads.status, 'WON')).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.clients).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.clientProjects).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.clientProjects).where(sql`${schema.clientProjects.status} IN ('ACTIVE','IN_PROGRESS','REVIEW')`).then(r => r[0].c),
+    db.select({ c: sql<number>`coalesce(sum(amount_cents),0)::int` }).from(schema.invoices).where(sql`${schema.invoices.status} IN ('SENT','VIEWED','PARTIALLY_PAID','OVERDUE')`).then(r => r[0].c),
+    db.select({ c: sql<number>`count(*)::int` }).from(schema.aiUsage).where(gte(schema.aiUsage.createdAt, dayAgo)).then(r => r[0].c),
+  ]);
+  return { result: { totals: { leads: Number(totalLeads), clients: Number(totalClients), projects: Number(totalProjects), activeProjects: Number(activeProjects), wonLeads: Number(wonLeads) }, '24h': { newLeads: Number(newLeads24h), aiRequests: Number(ai24h) }, outstandingReceivablesCents: Number(unpaidInvoices) } };
+};
+
+/* ---------- Client extended: invoices ---------- */
+export const toolClientInvoices: ToolSpec = { name: 'client_invoices', description: "List the authenticated client's invoices.", parameters: { type: 'object', properties: {}, required: [] } };
+export const clientInvoicesHandler: ToolHandler = async (_args, ctx) => {
+  if (ctx.kind !== 'client') return { result: { error: 'Unauthorized' } };
+  const cid = clientIdFrom(ctx); if (!cid) return { result: { error: 'No client identity' } };
+  if (!ctx.db) return { result: { error: 'database unavailable' } };
+  const db = ctx.db as DB;
+  const rows = await db.select({
+    id: schema.invoices.id, number: schema.invoices.number, amountCents: schema.invoices.amountCents,
+    currency: schema.invoices.currency, status: schema.invoices.status, dueDate: schema.invoices.dueDate,
+    paidAt: schema.invoices.paidAt, createdAt: schema.invoices.createdAt,
+  }).from(schema.invoices).where(eq(schema.invoices.clientId, cid)).orderBy(desc(schema.invoices.createdAt)).limit(20);
+  return { result: rows };
+};
+
 /* ---------- Tool-set bundles ---------- */
 
 export const PUBLIC_TOOLS: ToolSpec[] = [
@@ -392,9 +521,10 @@ export const PUBLIC_TOOLS: ToolSpec[] = [
 export const ADMIN_TOOLS: ToolSpec[] = [
   toolSearchServices, toolSearchProjects, toolSearchFaqs, toolGetPricing, toolListServices,
   toolAdminListLeads, toolAdminGetLead, toolAdminStats, toolAdminDraftReply, toolAdminSearchProjects,
+  toolAdminListClients, toolAdminListClientProjects, toolAdminGetProject, toolAdminListInvoices, toolAdminAnalyticsOverview,
 ];
 export const CLIENT_TOOLS: ToolSpec[] = [
-  toolClientProjects, toolClientMilestones, toolClientMessages, toolClientFiles,
+  toolClientProjects, toolClientMilestones, toolClientMessages, toolClientFiles, toolClientInvoices,
 ];
 
 export function buildHandlers(ctx: ToolContext): Record<string, ToolHandler> {
@@ -413,11 +543,17 @@ export function buildHandlers(ctx: ToolContext): Record<string, ToolHandler> {
     admin_stats: adminStatsHandler,
     admin_draft_reply: adminDraftReplyHandler,
     admin_search_projects: adminSearchProjectsHandler,
+    admin_list_clients: adminListClientsHandler,
+    admin_list_client_projects: adminListClientProjectsHandler,
+    admin_get_project: adminGetProjectHandler,
+    admin_list_invoices: adminListInvoicesHandler,
+    admin_analytics_overview: adminAnalyticsOverviewHandler,
   };
   return {
     client_projects: clientProjectsHandler,
     client_milestones: clientMilestonesHandler,
     client_messages: clientMessagesHandler,
     client_files: clientFilesHandler,
+    client_invoices: clientInvoicesHandler,
   };
 }

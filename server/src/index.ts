@@ -5,6 +5,7 @@ import { jsonError, ApiError } from './lib/errors';
 import type { Env } from './env';
 
 import health from './routes/health';
+import analytics from './routes/analytics';
 import cms from './routes/cms';
 import assistant from './routes/assistant';
 import assistantAdmin from './routes/assistant-admin';
@@ -15,6 +16,7 @@ import media from './routes/media';
 import files from './routes/files';
 import auth from './routes/auth';
 import clientRoutes from './routes/client';
+import payments from './routes/payments';
 import admin from './routes/admin';
 import adminPing from './routes/admin-ping';
 
@@ -42,6 +44,7 @@ app.use('*', async (c, next) => {
 app.onError((err, c) => jsonError(c, err));
 
 app.route('/healthz', health);
+app.route('/analytics', analytics);
 app.route('/cms', cms);
 app.route('/assistant', assistant);
 app.route('/assistant/admin', assistantAdmin);
@@ -52,6 +55,7 @@ app.route('/media', media);
 app.route('/files', files);
 app.route('/auth', auth);
 app.route('/client', clientRoutes);
+app.route('/payments', payments);
 
 // Admin (auth-protected). Mount /admin/_ping before the wildcard auth gate
 // so the UI can do a lightweight reachability check without a password.
