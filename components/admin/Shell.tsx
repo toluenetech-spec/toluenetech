@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Component, useEffect, useMemo, useState } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Menu } from 'lucide-react';
 import Sidebar, { NAV, NavItem } from './Sidebar';
 import { ToastProvider, ConfirmProvider } from './UI';
+import { apiBase } from '../../lib/api';
 
 // Sections (lazy-ish — static imports keep things simple, heavy sections use sub-components).
 import Dashboard from './sections/Dashboard';
@@ -58,9 +59,10 @@ function TopBar({ onToggleMobile, onCollapse, collapsed }: { onToggleMobile: () 
     let alive = true;
     const check = async () => {
       try {
-        const res = await fetch('/healthz');
+        const res = await fetch(`${apiBase()}/healthz`);
         if (!alive) return;
-        if (res.ok) setHealth('ok'); else setHealth('err');
+        const ct = res.headers.get('content-type') || '';
+        if (res.ok && ct.toLowerCase().includes('application/json')) setHealth('ok'); else setHealth('err');
       } catch { if (alive) setHealth('warn'); }
     };
     check();
@@ -176,18 +178,54 @@ export default function AdminShell({ onLogout }: { onLogout: () => void }) {
   );
 }
 
-function ErrorBoundary({ children }: { children: React.ReactNode }) {
-  const [err, setErr] = React.useState<string | null>(null);
+// Real React error boundary — catches render errors in children that
+// window 'error' listeners miss (React swallows synchronous render errors
+// before they reach window.onerror, which is why a function-component-only
+// "boundary" left the page blank when Dashboard threw on bad stats data).
+// Implemented via createClass-style object passed to React's base Component
+// so it works cleanly with React 19's strict JSX types.
+interface EBProps { children: React.ReactNode }
+interface EBState { err: string | null }
+const ErrorBoundary: React.ComponentType<EBProps> = (() => {
+  const C: any = class extends Component<EBProps, EBState> {
+    state: EBState = { err: null };
+    static getDerivedStateFromError(e: unknown): EBState {
+      return { err: String((e as any)?.stack || (e as any)?.message || e) };
+    }
+    componentDidCatch(error: unknown, info: React.ErrorInfo) {
+      console.error('[Admin error boundary]', error, info);
+    }
+    render() {
+      const err: string | null = (this as any).state?.err;
+      if (err) {
+        return (
+          <div style={{ padding: '2rem', maxWidth: 820, margin: '0 auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#222', whiteSpace: 'pre-wrap' }}>
+            <div style={{ color: '#dc2626', fontWeight: 700, fontSize: 15, marginBottom: '0.75rem' }}>Admin crashed</div>
+            <div style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '1rem', overflow: 'auto' }}>{err}</div>
+            <div style={{ marginTop: '1rem', fontSize: 12, color: '#64748b' }}>Open the browser console for the full stack. Clicking below will clear the admin session and reload.</div>
+            <button style={{ marginTop: '1rem', padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', background: '#fff' }} onClick={() => { sessionStorage.clear(); location.hash = '#/admin'; location.reload(); }}>Clear session and reload</button>
+          </div>
+        );
+      }
+      return <ErrorWindowListeners>{(this as any).props.children}</ErrorWindowListeners>;
+    }
+  };
+  return C as any;
+})();
+
+// Companion listener funnels window 'error' and 'unhandledrejection' events
+// into the class boundary above by re-throwing inside a microtask.
+function ErrorWindowListeners({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     const onErr = (e: ErrorEvent) => {
       const msg = e.error?.stack || e.error?.message || `${e.message} @ ${e.filename}:${e.lineno}`;
-      setErr(prev => prev || msg);
       console.error('[Admin runtime error]', e.error || e);
+      queueMicrotask(() => { throw new Error('[window.error] ' + msg); });
     };
     const onRej = (e: PromiseRejectionEvent) => {
       const msg = (e.reason as any)?.stack || (e.reason as any)?.message || String(e.reason);
-      setErr(prev => prev || msg);
       console.error('[Admin unhandled rejection]', e.reason);
+      queueMicrotask(() => { throw new Error('[unhandledrejection] ' + msg); });
     };
     window.addEventListener('error', onErr);
     window.addEventListener('unhandledrejection', onRej);
@@ -196,15 +234,5 @@ function ErrorBoundary({ children }: { children: React.ReactNode }) {
       window.removeEventListener('unhandledrejection', onRej);
     };
   }, []);
-  if (err) {
-    return (
-      <div style={{ padding: '2rem', maxWidth: 820, margin: '0 auto', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 13, color: '#222', whiteSpace: 'pre-wrap' }}>
-        <div style={{ color: '#dc2626', fontWeight: 700, fontSize: 15, marginBottom: '0.75rem' }}>Admin crashed</div>
-        <div style={{ background: '#fff1f2', border: '1px solid #fecaca', borderRadius: 8, padding: '1rem', overflow: 'auto' }}>{err}</div>
-        <div style={{ marginTop: '1rem', fontSize: 12, color: '#64748b' }}>Open the browser console for the full stack. Clicking below will clear the admin session and reload.</div>
-        <button style={{ marginTop: '1rem', padding: '0.5rem 1rem', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', background: '#fff' }} onClick={() => { sessionStorage.clear(); location.hash = '#/admin'; location.reload(); }}>Clear session and reload</button>
-      </div>
-    );
-  }
   return <>{children}</>;
 }

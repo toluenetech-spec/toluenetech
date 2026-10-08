@@ -21,7 +21,7 @@ export function cors(allowed: string) {
   function apply(c: Context, origin: string) {
     c.header('Access-Control-Allow-Origin', origin);
     c.header('Vary', 'Origin');
-    c.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    c.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     c.header('Access-Control-Allow-Headers', 'Content-Type, X-Anon-Id, Authorization, X-TT-Admin-Password, X-TT-Client-Email, X-TT-Client-Code, X-TT-Client-Demo');
     c.header('Access-Control-Max-Age', '86400');
   }

@@ -1,18 +1,23 @@
 /**
  * Typed client for /admin/* endpoints.
  * Auth: sends X-TT-Admin-Password from sessionStorage (same as ToleshChat).
+ * Uses the same Worker base URL as the public site (lib/api) so admin requests
+ * go to the Cloudflare Worker in production and to the Vite proxy (`''`) in
+ * dev — never to Netlify, which would otherwise serve index.html as a 200.
  */
+import { apiBase } from './api';
 import type { ChatMessage } from '../server/src/ai/types';
 
 export type Json = Record<string, unknown>;
-const BASE = (import.meta as any).env?.VITE_API_URL || '';
+const BASE = () => apiBase();
 
 function adminPassword(): string {
   try { return sessionStorage.getItem('tt_admin_session') || ''; } catch { return ''; }
 }
 
 async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const url = `${BASE()}${path}`;
+  const res = await fetch(url, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
@@ -21,9 +26,17 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
     },
   });
   if (res.status === 401) throw new Error('Unauthorized');
-  const text = await res.text();
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.toLowerCase().includes('application/json')) {
+    // Unexpected body (e.g. Netlify's SPA index.html, Worker 502 page) — don't
+    // let HTML be parsed as "data" and crash downstream consumers.
+    const snippet = (await res.text().catch(() => '')).slice(0, 200);
+    throw new Error(`Unexpected non-JSON response from ${path} (${res.status} ${res.statusText}${snippet ? ': ' + snippet.replace(/\s+/g, ' ') : ''})`);
+  }
   let data: any = null;
-  try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  try { data = await res.json(); } catch (e) {
+    throw new Error(`Invalid JSON response from ${path}: ${(e as Error).message}`);
+  }
   if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
   return data as T;
 }
@@ -56,11 +69,16 @@ export const api = {
   media: () => http('/admin/media'),
   deleteMedia: (id: string) => http(`/admin/media/${id}`, { method: 'DELETE' }),
   uploadMedia: async (file: File, alt?: string) => {
-    const fd = new FormData();
-    fd.append('file', file);
-    const url = `/media/upload?filename=${encodeURIComponent(file.name)}${alt ? '&alt='+encodeURIComponent(alt) : ''}`;
-    const res = await fetch(`${BASE}${url}`, { method: 'POST', body: file, headers: { 'X-TT-Admin-Password': adminPassword() } });
-    if (!res.ok) throw new Error(`Upload failed ${res.status}`);
+    const url = `${BASE()}/media/upload?filename=${encodeURIComponent(file.name)}${alt ? '&alt='+encodeURIComponent(alt) : ''}`;
+    const res = await fetch(url, { method: 'POST', body: file, headers: { 'X-TT-Admin-Password': adminPassword() } });
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.toLowerCase().includes('application/json')) {
+      throw new Error(`Unexpected non-JSON response from media upload (${res.status})`);
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || `Upload failed ${res.status}`);
+    }
     return res.json();
   },
 
@@ -77,13 +95,19 @@ export const api = {
 
   // Admin chat (reuses existing /assistant/admin; same auth)
   async adminChat(message: string, anonId: string | null): Promise<{ reply: string; anonId: string; model: string; usedFallback: boolean; toolCalls: { name: string; ok: boolean }[]; error?: string }> {
-    const res = await fetch(`${BASE}/assistant/admin`, {
+    const res = await fetch(`${BASE()}/assistant/admin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-TT-Admin-Password': adminPassword() },
       body: JSON.stringify({ message, anonId }),
     });
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.toLowerCase().includes('application/json')) {
+      throw new Error(`Unexpected non-JSON response from assistant/admin (${res.status})`);
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Chat failed ${res.status}`);
     return data;
   },
 };
+
+export { apiBase };

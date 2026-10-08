@@ -21,7 +21,14 @@ export default function Dashboard() {
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    api.stats().then(d => alive && setStats(d)).catch(e => alive && setErr(String(e.message || e)));
+    api.stats().then(d => {
+      if (!alive) return;
+      if (!d || typeof d !== 'object' || !d.projects || !d.leads || !d.clients || !d.content) {
+        setErr('Server returned an unexpected response (not a stats object). Check that the API base URL is configured.');
+        return;
+      }
+      setStats(d);
+    }).catch(e => alive && setErr(String(e.message || e)));
     return () => { alive = false; };
   }, []);
 
