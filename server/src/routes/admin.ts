@@ -137,7 +137,11 @@ const PRICING_FIELDS = ['name','tagline','priceMonthly','priceOneTime','currency
 // Products
 const PRODUCT_FIELDS = ['slug','name','description','logo','screenshots','features','techStack','status','demoUrl','websiteUrl','caseStudyUrl','isPublished','order'] as const;
 // Leads (admin can edit status, notes, followUp, convertedClientId; never ref)
-const LEAD_FIELDS = ['name','email','phone','company','services','requirements','budget','timeline','source','notes','status','followUpDate','convertedClientId'] as const;
+const LEAD_FIELDS = ['name','email','phone','company','services','requirements','budget','timeline','source','sourcePage','aiRef','assignedTo','notes','status','followUpDate','lastContactedAt','convertedClientId'] as const;
+// Solutions
+const SOLUTION_FIELDS = ['slug','title','tagline','description','icon','features','benefits','imageUrl','relatedServiceIds','ctaLabel','ctaUrl','isPublished','isFeatured','order','seoTitle','seoDescription'] as const;
+// Tools
+const TOOL_FIELDS = ['name','category','logoUrl','description','websiteUrl','isPublished','order'] as const;
 // Clients (admin edits name/email/phone/company/status; accessCode is set via dedicated endpoint)
 const CLIENT_FIELDS = ['userId','name','email','phone','company','status'] as const;
 // Client projects (jobs)
@@ -389,13 +393,19 @@ app.get('/leads', async (c) => {
   const q = url.searchParams.get('q') || undefined;
   const status = url.searchParams.get('status') || undefined;
   const source = url.searchParams.get('source') || undefined;
+  const assigned = url.searchParams.get('assigned') || undefined;
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const offset = (page - 1) * limit;
   const w = combine(
     q ? or(like(schema.leads.name, `%${q}%`), like(schema.leads.email, `%${q}%`), like(schema.leads.company, `%${q}%`), like(schema.leads.ref, `%${q}%`)) : undefined,
     status ? eq(schema.leads.status, status.toUpperCase() as any) : undefined,
     source ? eq(schema.leads.source, source) : undefined,
+    assigned ? eq(schema.leads.assignedTo, assigned === 'me' ? (auth(c) as any).uid : assigned) : undefined,
   );
-  const { items, total } = await counted(db, schema.leads, w, desc(schema.leads.createdAt));
-  return c.json({ items, total });
+  const [cntRow] = await db.select({ c: count() }).from(schema.leads).where(w);
+  const items = await db.select().from(schema.leads).where(w).orderBy(desc(schema.leads.createdAt)).limit(limit).offset(offset);
+  return c.json({ items, total: Number(cntRow.c), page, limit, totalPages: Math.ceil(Number(cntRow.c) / limit) });
 });
 app.get('/leads/:id', async (c) => {
   const db = getDb(c.env as Env);
@@ -426,6 +436,8 @@ app.post('/leads', async (c) => {
     requirements: sanitizeStr(b.requirements, 4000),
     budget: sanitizeStr(b.budget, 80), timeline: sanitizeStr(b.timeline, 80),
     source: sanitizeStr(b.source, 80) || 'manual',
+    sourcePage: sanitizeStr(b.sourcePage, 300), aiRef: sanitizeStr(b.aiRef, 64),
+    assignedTo: sanitizeStr(b.assignedTo, 128),
     notes: sanitizeStr(b.notes, 8000),
     status: (b.status || 'NEW').toUpperCase(),
     followUpDate: b.followUpDate || null,
@@ -447,13 +459,95 @@ app.put('/leads/:id', async (c) => {
   writeAudit(env, { action: 'UPDATE', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
+app.patch('/leads/:id/status', async (c) => {
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  const lead = await getOr404(db, schema.leads, id, 'Lead not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const next = String(b.status || '').toUpperCase();
+  const allowed = ['NEW','CONTACTED','QUALIFIED','DISCOVERY','PROPOSAL','NEGOTIATION','WON','LOST','ARCHIVED'];
+  if (!allowed.includes(next)) throw new ApiError({ code: 'VALIDATION_ERROR', message: `Invalid status. Must be one of: ${allowed.join(', ')}` });
+  const a = auth(c);
+  const patch: any = { status: next, updatedAt: now() };
+  if (next === 'CONTACTED') patch.lastContactedAt = now();
+  const [row] = await db.update(schema.leads).set(patch).where(eq(schema.leads.id, id)).returning();
+  await db.insert(schema.leadNotes).values({
+    id: uid(), leadId: id, authorType: 'admin', authorId: a.uid, authorName: a.name || a.email,
+    type: 'status_change',
+    body: b.note ? `Status changed ${lead.status} → ${next}. ${String(b.note).slice(0, 2000)}` : `Status changed ${lead.status} → ${next}.`,
+    meta: { from: lead.status, to: next },
+  });
+  writeAudit(env, { action: 'UPDATE', entity: 'leads', entityId: id, auth: a, req: c.req.raw, meta: { statusChange: { from: lead.status, to: next } } });
+  return c.json(row);
+});
+app.get('/leads/:id/notes', async (c) => {
+  const db = getDb(c.env as Env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.leads, id, 'Lead not found.');
+  const notes = await db.select().from(schema.leadNotes)
+    .where(eq(schema.leadNotes.leadId, id)).orderBy(desc(schema.leadNotes.createdAt));
+  return c.json({ items: notes, total: notes.length });
+});
+app.post('/leads/:id/notes', async (c) => {
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.leads, id, 'Lead not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const body = sanitizeStr(b.body, 8000);
+  if (!body) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Note body is required.' });
+  const a = auth(c);
+  const [row] = await db.insert(schema.leadNotes).values({
+    id: uid(), leadId: id, authorType: 'admin', authorId: a.uid, authorName: a.name || a.email,
+    type: sanitizeStr(b.type, 30) || 'note', body,
+    meta: b.meta && typeof b.meta === 'object' ? b.meta : {},
+  }).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'leads', entityId: id, auth: a, req: c.req.raw, meta: { note: true, type: row.type } });
+  return c.json(row, 201);
+});
+app.post('/leads/:id/convert', async (c) => {
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const lead = await getOr404(db, schema.leads, id, 'Lead not found.');
+  if (lead.convertedClientId) throw new ApiError({ code: 'CONFLICT', message: 'This lead has already been converted to a client.' });
+  const email = (lead.email || '').toLowerCase().trim();
+  if (!email) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Lead must have an email to convert.' });
+  let [existing] = await db.select().from(schema.clients).where(eq(schema.clients.email, email)).limit(1);
+  let client: any;
+  if (existing && b.allowMerge !== false) { client = existing; }
+  else {
+    const accessCode = generateAccessCode();
+    const [newClient] = await db.insert(schema.clients).values({
+      id: uid(), userId: null, name: lead.name || b.name || 'Client', email,
+      phone: lead.phone || null, company: lead.company || null,
+      status: 'ACTIVE', accessCode,
+    }).returning();
+    client = newClient;
+    writeAudit(env, { action: 'CREATE', entity: 'clients', entityId: client.id, auth: auth(c), req: c.req.raw, meta: { fromLead: lead.ref } });
+  }
+  await db.update(schema.leads).set({ status: 'WON', convertedClientId: client.id, convertedAt: now(), updatedAt: now() }).where(eq(schema.leads.id, id));
+  await db.insert(schema.leadNotes).values({
+    id: uid(), leadId: id, authorType: 'system', authorName: 'System', type: 'status_change',
+    body: existing ? `Linked to existing client ${client.name} (${client.email}). Status set to WON.` : `Converted to new client ${client.name} (${client.email}). Status set to WON.`,
+    meta: { clientId: client.id, merged: !!existing },
+  });
+  writeAudit(env, { action: 'LEAD_CONVERT', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw, meta: { clientId: client.id, merged: !!existing } });
+  return c.json({ success: true, data: { client, status: 'WON' } });
+});
 app.delete('/leads/:id', async (c) => {
   const env = c.env as Env;
   const db = getDb(env);
   const id = c.req.param('id');
   await getOr404(db, schema.leads, id, 'Lead not found.');
-  await db.delete(schema.leads).where(eq(schema.leads.id, id));
-  writeAudit(env, { action: 'DELETE', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw });
+  // Soft archive (preserve history) instead of hard delete.
+  await db.update(schema.leads).set({ status: 'ARCHIVED', updatedAt: now() }).where(eq(schema.leads.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw, meta: { softArchive: true } });
   return c.json({ ok: true });
 });
 
@@ -796,6 +890,80 @@ app.post('/ai/config', async (c) => {
     success: true,
     data: { ok: true, warnings, active: true, note: 'Configuration is live. Other Worker isolates will pick it up within 30 seconds.' },
   });
+});
+
+// ---------- Phase 2+3: Solutions & Tools ----------
+genCrud({
+  entity: 'solution', table: schema.solutions, listOrder: asc(schema.solutions.order),
+  searchCols: [schema.solutions.title, schema.solutions.slug, schema.solutions.tagline],
+  fields: SOLUTION_FIELDS, slugPrefix: 'sol',
+  mapInsert: (b) => ({
+    slug: b.slug || slugify(b.title || '', 'sol'),
+    title: b.title || '', tagline: b.tagline || null, description: b.description || null,
+    icon: b.icon || 'Globe',
+    features: Array.isArray(b.features) ? b.features.slice(0, 40) : [],
+    benefits: Array.isArray(b.benefits) ? b.benefits.slice(0, 40) : [],
+    imageUrl: b.imageUrl || null,
+    relatedServiceIds: Array.isArray(b.relatedServiceIds) ? b.relatedServiceIds.slice(0, 30) : [],
+    ctaLabel: b.ctaLabel || 'Learn more', ctaUrl: b.ctaUrl || null,
+    isPublished: !!b.isPublished, isFeatured: !!b.isFeatured,
+    order: Number.isInteger(b.order) ? b.order : 0,
+    seoTitle: b.seoTitle || null, seoDescription: b.seoDescription || null,
+  }),
+});
+
+app.get('/tools', async (c) => {
+  const db = getDb(c.env as Env);
+  const url = new URL(c.req.url);
+  const q = url.searchParams.get('q') || undefined;
+  const cat = url.searchParams.get('category') || undefined;
+  const w = combine(
+    q ? or(like(schema.tools.name, `%${q}%`), like(schema.tools.description as any, `%${q}%`)) : undefined,
+    cat ? eq(schema.tools.category, cat) : undefined,
+  );
+  const { items, total } = await counted(db, schema.tools, w, asc(schema.tools.order));
+  return c.json({ items, total });
+});
+app.get('/tools/:id', async (c) => {
+  const db = getDb(c.env as Env);
+  return c.json(await getOr404(db, schema.tools, c.req.param('id'), 'Tool not found.'));
+});
+app.post('/tools', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const name = sanitizeStr(b.name, 120);
+  if (!name) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Tool name is required.' });
+  const [dup] = await db.select().from(schema.tools).where(eq(schema.tools.name, name)).limit(1);
+  if (dup) throw new ApiError({ code: 'CONFLICT', message: 'A tool with that name already exists.' });
+  const [row] = await db.insert(schema.tools).values({
+    id: uid(), name, category: sanitizeStr(b.category, 40) || 'Development',
+    logoUrl: sanitizeStr(b.logoUrl, 500), description: sanitizeStr(b.description, 2000),
+    websiteUrl: sanitizeStr(b.websiteUrl, 500),
+    isPublished: b.isPublished !== false, order: Number.isInteger(b.order) ? b.order : 0,
+  }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'tools', entityId: row.id, auth: auth(c), req: c.req.raw });
+  return c.json(row, 201);
+});
+app.put('/tools/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env); const id = c.req.param('id');
+  await getOr404(db, schema.tools, id, 'Tool not found.');
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, TOOL_FIELDS), updatedAt: now() };
+  if (patch.name) {
+    patch.name = String(patch.name).trim().slice(0, 120);
+    const [dup] = await db.select().from(schema.tools).where(eq(schema.tools.name, patch.name)).limit(1);
+    if (dup && dup.id !== id) throw new ApiError({ code: 'CONFLICT', message: 'A tool with that name already exists.' });
+  }
+  const [row] = await db.update(schema.tools).set(patch).where(eq(schema.tools.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'tools', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
+  return c.json(row);
+});
+app.delete('/tools/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env); const id = c.req.param('id');
+  await getOr404(db, schema.tools, id, 'Tool not found.');
+  await db.delete(schema.tools).where(eq(schema.tools.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'tools', entityId: id, auth: auth(c), req: c.req.raw });
+  return c.json({ ok: true });
 });
 
 export default app;

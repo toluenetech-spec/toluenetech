@@ -70,16 +70,21 @@ export interface LeadSubmission {
   budget?: string;
   timeline?: string;
   source?: string;
+  sourcePage?: string;
+  aiRef?: string;
+  honeypot?: string;
 }
 
-export interface LeadResult { ok: true; ref: string; }
+export interface LeadResult { ok: true; ref: string; deduped?: boolean; }
 
 export async function submitLead(lead: LeadSubmission): Promise<LeadResult> {
   const res = await fetch(`${API_BASE}/leads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'omit',
     body: JSON.stringify({
-      source: 'website-form',
+      source: lead.source || 'website-form',
+      sourcePage: lead.sourcePage || (typeof window !== 'undefined' ? window.location.pathname : undefined),
       ...lead,
     }),
   });

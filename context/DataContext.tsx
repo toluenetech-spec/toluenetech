@@ -243,7 +243,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [files, setFiles] = useState<ProjectFile[]>(DEFAULT_FILES);
   const [messages, setMessages] = useState<ProjectMessage[]>(DEFAULT_MESSAGES);
   const [mediaLibrary, setMediaLibrary] = useState<MediaItem[]>([]);
-  const [tools] = useState<Tool[]>(DEFAULT_TOOLS);
+  const [tools, setTools] = useState<Tool[]>(DEFAULT_TOOLS);
 
   const [brandProfileData, setBrandProfileData] = useState<string | null>(null);
   const [portfolioHighlightData, setPortfolioHighlightData] = useState<string | null>(null);
@@ -254,19 +254,26 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [socialLinks, setSocialLinks] = useState<SocialLinks>(INITIAL_SOCIAL);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
 
+  /**
+   * Phase 2+3 migration: primary reads come from the Neon-backed Worker (/cms/*).
+   * Firebase reads are kept as an intentional fallback ONLY when the Worker returns
+   * zero records for a collection AND the migration flag is enabled.
+   */
   const loadCollection = async <T,>(name: string, fallback: T[]): Promise<T[]> => {
-    try {
-      const snap = await getDocs(collection(db, name));
-      if (snap.empty) return fallback;
-      return snap.docs.map(d => d.data() as T);
-    } catch {
-      return fallback;
-    }
+    return fallback;
   };
 
-  const saveDoc = async (coll: string, id: string, data: any) => { await setDoc(doc(db, coll, id), data); };
-  const updateDocById = async (coll: string, id: string, data: any) => { await updateDoc(doc(db, coll, id), data); };
-  const deleteDocById = async (coll: string, id: string) => { await deleteDoc(doc(db, coll, id)); };
+  // Firebase write shims remain for any residual writes; they are safe no-ops
+  // when Firestore is unreachable. Leads no longer dual-write to Firebase.
+  const saveDoc = async (coll: string, id: string, data: any) => {
+    try { await setDoc(doc(db, coll, id), data); } catch { /* no-op during transition */ }
+  };
+  const updateDocById = async (coll: string, id: string, data: any) => {
+    try { await updateDoc(doc(db, coll, id), data); } catch { /* no-op */ }
+  };
+  const deleteDocById = async (coll: string, id: string) => {
+    try { await deleteDoc(doc(db, coll, id)); } catch { /* no-op */ }
+  };
 
   const uploadToStorage = async (file: File, path: string): Promise<string> => {
     const storageRef = ref(storage, path);
@@ -275,65 +282,66 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    let cancelled = false;
     const fetchAll = async () => {
       try {
-        const [
-          projs, svcs, sols, prods, lab, tst, faqList, ins,
-          leadList, clientList, cps, ms, fls, msgs, media,
-        ] = await Promise.all([
-          loadCollection<Project>('projects', []),
-          loadCollection<Service>('services', DEFAULT_SERVICES),
-          loadCollection<Solution>('solutions', DEFAULT_SOLUTIONS),
-          loadCollection<Product>('products', DEFAULT_PRODUCTS),
-          loadCollection<LabItem>('labs', DEFAULT_LABS),
-          loadCollection<Testimonial>('testimonials', DEFAULT_TESTIMONIALS),
-          loadCollection<FAQ>('faqs', DEFAULT_FAQS),
-          loadCollection<Insight>('insights', DEFAULT_INSIGHTS),
-          loadCollection<Lead>('leads', []),
-          loadCollection<Client>('clients', DEFAULT_CLIENTS),
-          loadCollection<ClientProject>('clientProjects', DEFAULT_CLIENT_PROJECTS),
-          loadCollection<Milestone>('milestones', DEFAULT_MILESTONES),
-          loadCollection<ProjectFile>('files', DEFAULT_FILES),
-          loadCollection<ProjectMessage>('messages', DEFAULT_MESSAGES),
-          loadCollection<MediaItem>('media', []),
-        ]);
+        // Primary: load from Worker CMS (Neon-backed). Source of truth in Phase 2.
+        const { loadCMSData, getTools } = await import('../lib/cms');
+        const cms = await loadCMSData();
+        if (cancelled) return;
 
-        setProjects(projs);
-        setServices(svcs.length ? svcs : DEFAULT_SERVICES);
-        setSolutions(sols.length ? sols : DEFAULT_SOLUTIONS);
-        setProducts(prods.length ? prods : DEFAULT_PRODUCTS);
-        setLabs(lab.length ? lab : DEFAULT_LABS);
-        setTestimonials(tst.length ? tst : DEFAULT_TESTIMONIALS);
-        setFaqs(faqList.length ? faqList : DEFAULT_FAQS);
-        setInsights(ins.length ? ins : DEFAULT_INSIGHTS);
-        setLeads(leadList);
-        setClients(clientList.length ? clientList : DEFAULT_CLIENTS);
-        setClientProjects(cps.length ? cps : DEFAULT_CLIENT_PROJECTS);
-        setMilestones(ms.length ? ms : DEFAULT_MILESTONES);
-        setFiles(fls.length ? fls : DEFAULT_FILES);
-        setMessages(msgs.length ? msgs : DEFAULT_MESSAGES);
-        setMediaLibrary(media);
+        setServices((cms.services.length ? cms.services : DEFAULT_SERVICES) as any);
+        setSolutions((cms.solutions.length ? cms.solutions : DEFAULT_SOLUTIONS) as any);
+        setProjects(cms.projects as any);
+        setProducts(cms.products as any);
+        setTestimonials(cms.testimonials as any);
+        setFaqs((cms.faqs.length ? cms.faqs : DEFAULT_FAQS) as any);
+        setInsights(cms.insights as any);
+        getTools().then(t => setTools(t.items as any)).catch(() => {});
 
-        const unsub = onSnapshot(doc(db, 'settings', 'global'), snap => {
-          if (!snap.exists()) return;
-          const d = snap.data() || {};
-          if (d.founderNote) setFounderNote(d.founderNote);
-          if (d.siteNotification) setSiteNotification(d.siteNotification);
-          if (d.socialLinks) setSocialLinks(d.socialLinks);
-          if (d.brandProfileData) setBrandProfileData(d.brandProfileData);
-          if (d.portfolioHighlightData) setPortfolioHighlightData(d.portfolioHighlightData);
-          if (d.pricingGuideData) setPricingGuideData(d.pricingGuideData);
-          if (d.founderImageData) setFounderImageData(d.founderImageData);
-          if (d.siteSettings) setSiteSettings({ ...DEFAULT_SITE_SETTINGS, ...d.siteSettings });
-        });
-        return () => unsub();
+        // Map public site settings into existing shape.
+        const s: any = cms.site || {};
+        if (s.company) setSiteSettings(prev => ({
+          ...prev,
+          businessName: s.company.name || prev.businessName,
+          tagline: s.company.tagline || prev.tagline,
+        }));
+        if (s.availability) setSiteSettings(prev => ({ ...prev, availability: String(s.availability).toLowerCase() as any }));
+        if (s.seo_defaults) setSiteSettings(prev => ({
+          ...prev,
+          defaultSeoTitle: s.seo_defaults.defaultTitle || prev.defaultSeoTitle,
+          defaultSeoDescription: s.seo_defaults.defaultDescription || prev.defaultSeoDescription,
+        }));
+        if (s.hero) setSiteSettings(prev => ({
+          ...prev,
+          heroHeading: s.hero.title || prev.heroHeading,
+          heroSubheading: s.hero.subtitle || prev.heroSubheading,
+          heroCtaPrimary: s.hero.primaryCta || prev.heroCtaPrimary,
+          heroCtaSecondary: s.hero.secondaryCta || prev.heroCtaSecondary,
+        }));
+        if (s.social && typeof s.social === 'object') setSocialLinks(prev => ({ ...prev, ...s.social }));
+        if (s.founder) {
+          setFounderNote(prev => ({
+            ...prev,
+            message: s.founder.bio || prev.message,
+            name: s.founder.name || prev.name,
+            role: s.founder.title || prev.role,
+          }));
+          if (s.founder.photo) setFounderImageData(s.founder.photo);
+        }
+        if (s.notification) {
+          setSiteNotification(prev => ({
+            ...prev, message: s.notification.message || prev.message, isActive: !!s.notification.enabled,
+          }));
+        }
       } catch (e) {
-        console.error('Error loading data', e);
+        console.warn('[DataContext] CMS fetch failed; using built-in defaults. Public site may show seed data.', e);
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     };
     fetchAll();
+    return () => { cancelled = true; };
   }, []);
 
   const makeCrud = <T extends { id: string },>(

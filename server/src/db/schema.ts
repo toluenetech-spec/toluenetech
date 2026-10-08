@@ -11,7 +11,7 @@ export const productStatusEnum = pgEnum('product_status', ['IDEA', 'PROTOTYPE', 
 export const labCategoryEnum = pgEnum('lab_category', ['AI', 'EXPERIMENT', 'TOOL', 'RESEARCH']);
 export const leadStatusEnum = pgEnum('lead_status', [
   'NEW', 'CONTACTED', 'QUALIFIED', 'DISCOVERY', 'PROPOSAL',
-  'NEGOTIATION', 'WON', 'LOST',
+  'NEGOTIATION', 'WON', 'LOST', 'ARCHIVED',
 ]);
 export const clientStatusEnum = pgEnum('client_status', ['ACTIVE', 'INACTIVE']);
 export const milestoneStatusEnum = pgEnum('milestone_status', ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'APPROVED']);
@@ -206,17 +206,86 @@ export const leads = pgTable('leads', {
   requirements: text('requirements'),
   budget: varchar('budget', { length: 80 }),
   timeline: varchar('timeline', { length: 80 }),
-  source: varchar('source', { length: 80 }),                // website-form, assistant, referral, ...
+  source: varchar('source', { length: 80 }),                // contact|service|portfolio|assistant|ai-lab|whatsapp|direct|referral|other|unknown
+  sourcePage: varchar('source_page', { length: 300 }),      // the page URL where this lead originated
+  aiRef: varchar('ai_ref', { length: 64 }),                 // assistant session id if AI-originated
+  assignedTo: varchar('assigned_to', { length: 128 }),      // admin uid
   notes: text('notes'),
   status: leadStatusEnum('status').notNull().default('NEW'),
   followUpDate: timestamp('follow_up_date', { mode: 'date', withTimezone: true }),
+  lastContactedAt: timestamp('last_contacted_at', { mode: 'date', withTimezone: true }),
   convertedClientId: varchar('converted_client_id', { length: 36 }),
+  convertedAt: timestamp('converted_at', { mode: 'date', withTimezone: true }),
   createdAt: now('created_at'),
   updatedAt: now('updated_at'),
 }, (t) => ({
   emailIdx: index('lead_email_idx').on(t.email),
   statusIdx: index('lead_status_idx').on(t.status),
 }));
+
+/* ---------- Lead notes (activity timeline) ---------- */
+export const leadNotes = pgTable('lead_notes', {
+  id: varchar('id', { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  leadId: varchar('lead_id', { length: 36 }).notNull(),
+  authorType: varchar('author_type', { length: 16 }).notNull().default('admin'), // admin|client|ai|system
+  authorId: varchar('author_id', { length: 128 }),
+  authorName: varchar('author_name', { length: 160 }),
+  type: varchar('type', { length: 30 }).notNull().default('note'), // note|status_change|email|sms|ai_summary
+  body: text('body').notNull(),
+  meta: jsonb('meta').$type<Record<string, unknown>>().default({}),
+  createdAt: now('created_at'),
+}, (t) => ({ leadIdx: index('ln_lead_idx').on(t.leadId) }));
+
+/* ---------- Solutions ---------- */
+export const solutions = pgTable('solutions', {
+  id: varchar('id', { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  slug: varchar('slug', { length: 120 }).notNull().unique(),
+  title: varchar('title', { length: 200 }).notNull(),
+  tagline: varchar('tagline', { length: 240 }),
+  description: text('description'),
+  icon: varchar('icon', { length: 60 }).default('Globe'),
+  features: jsonb('features').$type<string[]>().default([]),
+  benefits: jsonb('benefits').$type<string[]>().default([]),
+  imageUrl: varchar('image_url', { length: 500 }),
+  relatedServiceIds: jsonb('related_service_ids').$type<string[]>().default([]),
+  ctaLabel: varchar('cta_label', { length: 60 }).default('Learn more'),
+  ctaUrl: varchar('cta_url', { length: 240 }),
+  isPublished: boolean('is_published').notNull().default(false),
+  isFeatured: boolean('is_featured').notNull().default(false),
+  order: integer('order').notNull().default(0),
+  seoTitle: varchar('seo_title', { length: 200 }),
+  seoDescription: text('seo_description'),
+  createdAt: now('created_at'),
+  updatedAt: now('updated_at'),
+}, (t) => ({ slugIdx: uniqueIndex('sol_slug_idx').on(t.slug) }));
+
+/* ---------- Tools / Technology stack ---------- */
+export const tools = pgTable('tools', {
+  id: varchar('id', { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: varchar('name', { length: 120 }).notNull().unique(),
+  category: varchar('category', { length: 40 }).notNull().default('Development'),
+  logoUrl: varchar('logo_url', { length: 500 }),
+  description: text('description'),
+  websiteUrl: varchar('website_url', { length: 500 }),
+  isPublished: boolean('is_published').notNull().default(true),
+  order: integer('order').notNull().default(0),
+  createdAt: now('created_at'),
+});
+
+/* ---------- Page views (lightweight privacy-friendly analytics) ---------- */
+export const pageViews = pgTable('page_views', {
+  id: varchar('id', { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID()),
+  path: varchar('path', { length: 300 }).notNull(),
+  referrer: varchar('referrer', { length: 300 }),
+  anonId: varchar('anon_id', { length: 64 }),
+  country: varchar('country', { length: 8 }),
+  userAgentHash: varchar('ua_hash', { length: 64 }),
+  sessionId: varchar('session_id', { length: 64 }),
+  utmSource: varchar('utm_source', { length: 80 }),
+  utmMedium: varchar('utm_medium', { length: 80 }),
+  utmCampaign: varchar('utm_campaign', { length: 120 }),
+  createdAt: now('created_at'),
+}, (t) => ({ pathIdx: index('pv_path_idx').on(t.path, t.createdAt) }));
 
 /* ---------- Clients ---------- */
 export const clients = pgTable('clients', {

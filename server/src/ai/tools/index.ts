@@ -1,4 +1,4 @@
-import { ilike, or, eq, desc, and, sql } from 'drizzle-orm';
+import { ilike, or, eq, desc, and, gte, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db';
 import type { ToolSpec, ToolHandler, ToolContext } from '../client';
 import { rateLimit } from '../../lib/rate-limit';
@@ -170,18 +170,40 @@ export const createLeadHandler: ToolHandler = async (args, ctx) => {
   const n = lastRow?.ref ? parseInt(lastRow.ref.replace(/\D/g, ''), 10) || 0 : 0;
   const ref = `TT-${String(n + 1).padStart(4, '0')}`;
 
-  const [lead] = await db.insert(schema.leads).values({
-    ref, name, email,
-    phone: phone ?? undefined, company: company ?? undefined,
-    requirements, budget: budget ?? undefined, timeline: timeline ?? undefined,
-    services, source: 'assistant', status: 'NEW', notes: summary || null,
-  }).returning();
+  // Dedupe: don't create a second lead for the same email within 24h, and don't
+  // create if the session already captured a lead.
+  if (ctx.session?.capturedLeadId) {
+    return { result: { ok: true, ref: 'existing', alreadyCaptured: true }, stop: false };
+  }
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [dup] = await db.select().from(schema.leads)
+    .where(and(eq(schema.leads.email, email), gte(schema.leads.createdAt, dayAgo)))
+    .orderBy(desc(schema.leads.createdAt)).limit(1);
+  let lead;
+  if (dup && dup.status !== 'LOST' && dup.status !== 'ARCHIVED') {
+    lead = dup;
+  } else {
+    [lead] = await db.insert(schema.leads).values({
+      ref, name, email,
+      phone: phone ?? undefined, company: company ?? undefined,
+      requirements, budget: budget ?? undefined, timeline: timeline ?? undefined,
+      services, source: 'assistant', sourcePage: '/assistant',
+      aiRef: ctx.session?.id ?? null,
+      status: 'NEW', notes: summary || null,
+    }).returning();
+  }
 
   if (ctx.session?.id) {
     await db.update(schema.assistantSessions)
       .set({ capturedLeadId: lead.id, intent: (args.intent as string) ?? 'start-project', email, name })
       .where(eq(schema.assistantSessions.id, ctx.session.id));
   }
+  await db.insert(schema.leadNotes).values({
+    id: crypto.randomUUID(), leadId: lead.id,
+    authorType: 'ai', authorName: 'Tolesh (public)',
+    type: 'note', body: summary || `Lead captured from assistant chat. Brief: ${requirements.slice(0, 400)}`,
+    meta: { source: 'assistant', intent: args.intent ?? 'start-project' },
+  });
 
   return {
     result: { ok: true, ref: lead.ref },

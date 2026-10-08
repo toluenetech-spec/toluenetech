@@ -132,6 +132,15 @@ export const api = {
   settings: () => http('/admin/settings'),
   setSetting: (key: string, value: unknown) => http(`/admin/settings/${key}`, { method: 'PUT', body: JSON.stringify({ value }) }),
 
+  // Leads: notes, status changes, conversion
+  leadNotes: (id: string) => http(`/admin/leads/${id}/notes`),
+  addLeadNote: (id: string, body: string, type = 'note') =>
+    http(`/admin/leads/${id}/notes`, { method: 'POST', body: JSON.stringify({ body, type }) }),
+  updateLeadStatus: (id: string, status: string, note?: string) =>
+    http(`/admin/leads/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
+  convertLead: (id: string, allowMerge = true) =>
+    http(`/admin/leads/${id}/convert`, { method: 'POST', body: JSON.stringify({ allowMerge }) }),
+
   // Clients
   regenerateClientCode: (id: string) => http(`/admin/clients/${id}/regenerate-code`, { method: 'POST', body: JSON.stringify({}) }),
 

@@ -5,8 +5,8 @@ import { api } from '../../../lib/admin';
 import DataTable, { TitleCell, StatusCell } from '../DataTable';
 import { Badge, Button, Drawer, EmptyState, Modal, SkeletonLine, useConfirm, useToast } from '../UI';
 
-const STATUSES = ['NEW','CONTACTED','QUALIFIED','DISCOVERY','PROPOSAL','NEGOTIATION','WON','LOST'] as const;
-const SOURCES = ['website','whatsapp','email','referral','ai-lab','estimate','manual','other'] as const;
+const STATUSES = ['NEW','CONTACTED','QUALIFIED','DISCOVERY','PROPOSAL','NEGOTIATION','WON','LOST','ARCHIVED'] as const;
+const SOURCES = ['website-form','contact','service','portfolio','assistant','ai-lab','whatsapp','direct','referral','manual','other','unknown'] as const;
 
 export default function LeadsSection() {
   const nav = useNavigate();
@@ -45,7 +45,7 @@ export default function LeadsSection() {
 
   const updateStatus = async (leadId: string, next: string) => {
     try {
-      await api.update('leads', leadId, { status: next });
+      await api.updateLeadStatus(leadId, next);
       setItems(prev => (prev || []).map(l => l.id === leadId ? { ...l, status: next } : l));
       if (selected?.id === leadId) setSelected({ ...selected, status: next });
       toast.push('success', 'Status updated');
@@ -53,21 +53,39 @@ export default function LeadsSection() {
   };
   const saveNote = async () => {
     if (!selected || !noteDraft.trim()) return;
-    const newNote = noteDraft.trim();
-    const merged = selected.notes ? `${selected.notes}\n\n${newNote}` : newNote;
+    const body = noteDraft.trim();
     try {
-      await api.update('leads', selected.id, { notes: merged });
-      setSelected({ ...selected, notes: merged });
+      await api.addLeadNote(selected.id, body, 'note');
       setNoteDraft('');
-      toast.push('success', 'Note added');
-      load();
+      toast.push('success', 'Note added to timeline');
+      api.get('leads', selected.id).then(setSelected).catch(() => {});
     } catch (e: any) { toast.push('error', 'Could not add note', e.message); }
   };
-  const remove = async (l: any) => {
-    const ok = await confirm.confirm({ title: 'Delete lead?', message: `This will permanently delete ${l.name} (${l.ref}). This cannot be undone.`, confirmLabel: 'Delete', danger: true });
+  const convert = async () => {
+    if (!selected) return;
+    const ok = await confirm.confirm({
+      title: 'Convert to client?',
+      message: `This will mark ${selected.name} as WON and create (or link to) a client record with the same email. History is preserved.`,
+      confirmLabel: 'Convert',
+    });
     if (!ok) return;
-    try { await api.remove('leads', l.id); setItems(prev => (prev || []).filter(x => x.id !== l.id)); toast.push('success', 'Lead deleted'); if (selected?.id === l.id) { setSelected(null); nav('/admin/leads'); } }
-    catch (e: any) { toast.push('error', 'Delete failed', e.message); }
+    try {
+      const res = await api.convertLead(selected.id, true);
+      toast.push('success', 'Converted', `${selected.name} is now a client.`);
+      setItems(prev => (prev || []).map(l => l.id === selected.id ? { ...l, status: 'WON', convertedClientId: res.data.client.id } : l));
+      setSelected({ ...selected, status: 'WON', convertedClientId: res.data.client.id });
+    } catch (e: any) { toast.push('error', 'Conversion failed', e.message); }
+  };
+  const remove = async (l: any) => {
+    const ok = await confirm.confirm({ title: 'Archive lead?', message: `${l.name} (${l.ref}) will be marked as ARCHIVED. History is preserved — this is a soft archive, not a hard delete.`, confirmLabel: 'Archive', danger: true });
+    if (!ok) return;
+    try {
+      await api.remove('leads', l.id);
+      setItems(prev => (prev || []).map(x => x.id === l.id ? { ...x, status: 'ARCHIVED' } : x));
+      toast.push('success', 'Lead archived');
+      if (selected?.id === l.id) setSelected({ ...selected, status: 'ARCHIVED' });
+    }
+    catch (e: any) { toast.push('error', 'Archive failed', e.message); }
   };
 
   return (
@@ -133,7 +151,10 @@ export default function LeadsSection() {
         footer={selected && (
           <>
             <Button variant="ghost" onClick={() => { setSelected(null); nav('/admin/leads'); }}>Close</Button>
-            <Button variant="danger" icon={<Trash2 size={14}/>} onClick={() => remove(selected)}>Delete</Button>
+            {selected.status !== 'WON' && selected.status !== 'ARCHIVED' && (
+              <Button variant="primary" icon={<Check size={14}/>} onClick={convert}>Convert to client</Button>
+            )}
+            <Button variant="danger" icon={<Trash2 size={14}/>} onClick={() => remove(selected)}>Archive</Button>
           </>
         )}
       >
@@ -149,6 +170,9 @@ export default function LeadsSection() {
                   <dd><a className="adm-link" href={`https://wa.me/${String(selected.phone).replace(/\D/g,'')}`} target="_blank" rel="noreferrer">{selected.phone}</a></dd></>}
                 {selected.company && <><dt><Building2 size={13} style={{ verticalAlign: -2, marginRight: 4 }}/>Company</dt><dd>{selected.company}</dd></>}
                 <dt><Calendar size={13} style={{ verticalAlign: -2, marginRight: 4 }}/>Created</dt><dd>{new Date(selected.createdAt).toLocaleString()}</dd>
+                {selected.sourcePage && <><dt>Source page</dt><dd style={{ wordBreak: 'break-all' }}><a className="adm-link" href={selected.sourcePage} target="_blank" rel="noreferrer">{selected.sourcePage}</a></dd></>}
+                {selected.aiRef && <><dt>AI session</dt><dd className="adm-mono" style={{ fontSize: '0.75rem' }}>{selected.aiRef}</dd></>}
+                {selected.convertedClientId && <><dt>Client</dt><dd><span className="adm-badge published">WON</span> <span className="adm-mono">{String(selected.convertedClientId).slice(0,8)}</span></dd></>}
               </dl>
             </div>
 

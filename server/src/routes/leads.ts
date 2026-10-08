@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, gte } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { rateLimit, clientIp } from '../lib/rate-limit';
 import type { Env } from '../env';
@@ -9,15 +9,9 @@ const app = new Hono<{ Bindings: Env }>();
 app.onError((err, c) => jsonError(c, err));
 
 interface LeadInput {
-  name?: unknown;
-  email?: unknown;
-  phone?: unknown;
-  company?: unknown;
-  services?: unknown;
-  requirements?: unknown;
-  budget?: unknown;
-  timeline?: unknown;
-  source?: unknown;
+  name?: unknown; email?: unknown; phone?: unknown; company?: unknown;
+  services?: unknown; requirements?: unknown; budget?: unknown; timeline?: unknown;
+  source?: unknown; sourcePage?: unknown; aiRef?: unknown; honeypot?: unknown;
 }
 
 function sanitizeStr(v: unknown, max = 500): string | null {
@@ -25,11 +19,9 @@ function sanitizeStr(v: unknown, max = 500): string | null {
   const t = v.trim().slice(0, max);
   return t.length ? t : null;
 }
-
 function validateEmail(v: string | null): boolean {
   return !!v && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) && v.length <= 240;
 }
-
 async function nextLeadRef(db: ReturnType<typeof getDb>): Promise<string> {
   const [last] = await db.select({ ref: schema.leads.ref }).from(schema.leads)
     .orderBy(desc(schema.leads.createdAt)).limit(1);
@@ -37,7 +29,7 @@ async function nextLeadRef(db: ReturnType<typeof getDb>): Promise<string> {
   return `TT-${String(num + 1).padStart(4, '0')}`;
 }
 
-/** Public lead submission from /start-project or /contact or assistant. */
+/** Public lead submission. */
 app.post('/', async (c) => {
   const env = c.env as Env;
   const ip = clientIp(c.req.raw);
@@ -52,12 +44,20 @@ app.post('/', async (c) => {
   if (!name) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Name is required.' });
   if (!validateEmail(email)) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'A valid email is required.' });
 
+  // Honeypot anti-bot.
+  const bot = typeof body.honeypot === 'string' && body.honeypot.length > 0;
+
   const phone = sanitizeStr(body.phone, 40);
   const company = sanitizeStr(body.company, 180);
   const requirements = sanitizeStr(body.requirements, 4000);
   const budget = sanitizeStr(body.budget, 80);
   const timeline = sanitizeStr(body.timeline, 80);
-  const source = sanitizeStr(body.source, 80) ?? 'website-form';
+  const source = bot ? 'spam' : (sanitizeStr(body.source, 80) ?? 'website-form');
+  const sourcePage = sanitizeStr(body.sourcePage, 300);
+  const aiRef = sanitizeStr(body.aiRef, 64);
+
+  const allowedSources = new Set(['contact','service','portfolio','assistant','ai-lab','whatsapp','direct','referral','other','unknown','website-form','manual','spam']);
+  const finalSource = allowedSources.has(source) ? source : 'unknown';
 
   let services: string[] = [];
   if (Array.isArray(body.services)) {
@@ -65,20 +65,26 @@ app.post('/', async (c) => {
   }
 
   const db = getDb(env);
-  const ref = await nextLeadRef(db);
 
+  // Dedupe: recent lead with same email within 24h.
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [dup] = await db.select().from(schema.leads)
+    .where(and(eq(schema.leads.email, email!), gte(schema.leads.createdAt, dayAgo)))
+    .orderBy(desc(schema.leads.createdAt)).limit(1);
+  if (dup && dup.status !== 'LOST' && dup.status !== 'ARCHIVED') {
+    return c.json({ success: true, data: { ref: dup.ref, id: dup.id, deduped: true } }, 200);
+  }
+
+  const ref = await nextLeadRef(db);
   const [lead] = await db.insert(schema.leads).values({
-    ref,
-    name,
-    email: email!,
-    phone: phone ?? undefined,
-    company: company ?? undefined,
+    ref, name, email: email!,
+    phone: phone ?? undefined, company: company ?? undefined,
     requirements: requirements ?? undefined,
-    budget: budget ?? undefined,
-    timeline: timeline ?? undefined,
-    source,
-    services,
-    status: 'NEW',
+    budget: budget ?? undefined, timeline: timeline ?? undefined,
+    source: finalSource,
+    sourcePage: sourcePage ?? undefined,
+    aiRef: aiRef ?? undefined,
+    services, status: 'NEW',
   }).returning();
 
   return c.json({ success: true, data: { ref: lead.ref, id: lead.id } }, 201);
