@@ -107,7 +107,7 @@ function Shell({ onLogout }: { onLogout: () => void }) {
         <TopBar onToggleMobile={() => setMobileOpen(true)}/>
         <div className="adm-content">
           <div className="adm-content-inner">
-            <AnimatePresence mode="wait">
+            <AnimatePresence>
               <Routes location={location}>
                 <Route index element={<Navigate to="/admin/dashboard" replace/>}/>
                 <Route path="dashboard" element={<PageWrap><Dashboard/></PageWrap>}/>

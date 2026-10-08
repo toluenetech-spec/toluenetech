@@ -12,14 +12,25 @@ export default function Login({ onLogin }: Props) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     setBusy(true);
     setErr(null);
+    // Synchronously validate. If valid, persist the session (which onLogin
+    // does via useAuth.login -> sessionStorage) then replace the URL to
+    // /admin/dashboard. We navigate AFTER auth state flips and we explicitly
+    // set the hash so there is no intermediate /admin frame that triggers
+    // the shell's catch-all redirect.
+    const ok = onLogin(pw);
+    if (!ok) {
+      setErr('Incorrect password. Please try again.');
+      setBusy(false);
+      return;
+    }
+    // Defer one tick so React flushes isAuthenticated=true, then replace URL.
     setTimeout(() => {
-      const ok = onLogin(pw);
-      if (!ok) { setErr('Incorrect password. Please try again.'); setBusy(false); return; }
-      // Push to dashboard so post-login state change actually navigates
       nav('/admin/dashboard', { replace: true });
-    }, 250);
+      setBusy(false);
+    }, 50);
   };
   return (
     <div className="adm-login-wrap">

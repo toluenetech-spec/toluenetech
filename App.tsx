@@ -73,8 +73,12 @@ const SiteRoutes: React.FC = () => {
   const isPortal = location.pathname.startsWith('/portal');
   return (
     <>
-      <AnimatePresence mode="wait">
-        <Routes location={location}>
+      {/* Wrap routes in a keyed fragment so AnimatePresence sees the
+          transition between public and admin (we don't animate inner route
+          changes — that caused white-flash flickers on login). */}
+      <AnimatePresence>
+        <React.Fragment key={location.pathname.startsWith('/admin') ? 'admin' : 'site'}>
+          <Routes location={location}>
           <Route path="/" element={<Layout><PageTransition><Home /></PageTransition></Layout>} />
           <Route path="/about" element={<Layout><PageTransition><About /></PageTransition></Layout>} />
           <Route path="/process" element={<Layout><PageTransition><Process /></PageTransition></Layout>} />
@@ -105,7 +109,8 @@ const SiteRoutes: React.FC = () => {
           <Route path="/portal/dashboard" element={<PortalLayout><Portal /></PortalLayout>} />
 
           <Route path="*" element={<Layout><PageTransition><NotFound /></PageTransition></Layout>} />
-        </Routes>
+          </Routes>
+        </React.Fragment>
       </AnimatePresence>
       {!isAdmin && !isPortal && <ToleshWidget mode="public" />}
     </>
@@ -118,7 +123,9 @@ const App: React.FC = () => (
       <DataProvider>
         <ClientAuthProvider>
           <Router>
-            <IntroLoader />
+            {/* Only show intro loader on public pages; on /admin we want an
+                instant shell render so login/auth don't flash white. */}
+            <PublicIntroLoader />
             <SiteRoutes />
           </Router>
         </ClientAuthProvider>
@@ -126,5 +133,11 @@ const App: React.FC = () => (
     </AuthProvider>
   </ThemeProvider>
 );
+
+function PublicIntroLoader() {
+  const loc = useLocation();
+  if (loc.pathname.startsWith('/admin') || loc.pathname.startsWith('/portal')) return null;
+  return <IntroLoader />;
+}
 
 export default App;
