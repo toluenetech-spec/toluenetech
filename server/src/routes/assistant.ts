@@ -120,18 +120,23 @@ app.post('/chat', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
-    // Use public surface config (primary + fallback) regardless of tier.
-    const surf = resolveForSurface(env, 'public');
+    // Use public surface config (primary + fallback) from DB+env+defaults.
+    const surf = await resolveForSurface(env, 'public');
+    // Tier override: keep fast responses tight; standard uses surface defaults.
+    const effectiveMaxTokens = tier === 'fast' ? Math.min(300, surf.maxTokens) : surf.maxTokens;
+    const effectiveTimeout = tier === 'fast' ? Math.min(15_000, surf.timeoutMs) : surf.timeoutMs;
+    // Filter tools to whitelist if configured; otherwise use surface default.
+    const effectiveTools = tools.length === 0 ? [] : (surf.toolsEnabled ? tools.filter(t => surf.toolsEnabled!.includes(t.name)) : tools);
     const result = await ai.run(
       {
         messages,
         model: surf.primary,
         fallbackModels: surf.fallbackChain.slice(1),
         tier,
-        tools,
+        tools: effectiveTools,
         maxTurns: 6,
-        maxTokens: tier === 'fast' ? 300 : 800,
-        timeoutMs: tier === 'fast' ? 12_000 : 30_000,
+        maxTokens: effectiveMaxTokens,
+        timeoutMs: effectiveTimeout,
         label: 'public',
       },
       buildHandlers({ kind: 'public', auth: null, db, env, ip, session: { id: session.id, anonId, capturedLeadId: session.capturedLeadId, intent: session.intent } }),

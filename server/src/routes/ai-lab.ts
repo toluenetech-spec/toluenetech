@@ -77,8 +77,9 @@ async function runLab(c: any, kind: LabKind, userText: string) {
     const handlers = db
       ? buildHandlers({ kind: 'public', auth: null, db, env, ip })
       : {};
-    const surf = resolveForSurface(env, kind as Surface);
-    const tools = db ? TOOLS_FOR_LAB : [];
+    const surf = await resolveForSurface(env, kind as Surface);
+    const allTools = db ? TOOLS_FOR_LAB : [];
+    const tools = surf.toolsEnabled ? allTools.filter(t => surf.toolsEnabled!.includes(t.name)) : allTools;
     const result = await ai.run(
       {
         messages,
@@ -87,8 +88,8 @@ async function runLab(c: any, kind: LabKind, userText: string) {
         tier: surf.tier,
         tools,
         maxTurns: 5,
-        maxTokens: kind === 'planner' ? 1200 : 800,
-        timeoutMs: 45_000,
+        maxTokens: Math.min(kind === 'planner' ? 1500 : 1000, surf.maxTokens),
+        timeoutMs: surf.timeoutMs,
         label: `lab:${kind}`,
       },
       handlers,

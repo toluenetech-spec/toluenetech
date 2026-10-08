@@ -83,17 +83,18 @@ app.post('/', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
-    const { primary, fallbackChain: fb } = resolveForSurface(env, 'admin');
+    const surf = await resolveForSurface(env, 'admin');
+    const effectiveTools = surf.toolsEnabled ? ADMIN_TOOLS.filter(t => surf.toolsEnabled!.includes(t.name)) : ADMIN_TOOLS;
     const r = await ai.run(
       {
         messages,
-        model: primary,
-        fallbackModels: fb.slice(1),
+        model: surf.primary,
+        fallbackModels: surf.fallbackChain.slice(1),
         tier: 'reasoning',
-        tools: ADMIN_TOOLS,
+        tools: effectiveTools,
         maxTurns: 6,
-        maxTokens: 1000,
-        timeoutMs: 40_000,
+        maxTokens: surf.maxTokens,
+        timeoutMs: surf.timeoutMs,
         label: 'admin',
       },
       buildHandlers({ kind: 'admin', auth: { uid: auth.uid, email: auth.email, name: admName, role: 'ADMIN' }, db, env, ip }),

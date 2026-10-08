@@ -49,10 +49,12 @@ export async function sendChatMessage(
   });
   if (!res.ok) {
     if (res.status === 429) throw new Error('Too many requests — please wait a moment.');
-    const t = await res.text().catch(() => '');
-    throw new Error(t ? t : `Server error (${res.status})`);
+    let msg = `Server error (${res.status})`;
+    try { const j = await res.json() as any; msg = j?.error?.message || j?.error || msg; } catch { const t = await res.text().catch(() => ''); if (t) msg = t.slice(0, 200); }
+    throw new Error(msg);
   }
-  const data = await res.json() as ChatReply;
+  const raw = await res.json();
+  const data: ChatReply = (raw && typeof raw === 'object' && 'success' in raw && (raw as any).success) ? (raw as any).data : raw;
   if (data.anonId) setAnonId(data.anonId);
   return data;
 }
@@ -83,10 +85,16 @@ export async function submitLead(lead: LeadSubmission): Promise<LeadResult> {
   });
   if (!res.ok) {
     let msg = `Server error (${res.status})`;
-    try { const j = await res.json() as { error?: string }; if (j?.error) msg = j.error; } catch { /* ignore */ }
+    try { const j = await res.json() as any; msg = j?.error?.message || j?.error || msg; } catch { /* ignore */ }
     throw new Error(msg);
   }
-  return res.json() as Promise<LeadResult>;
+  const raw = await res.json();
+  // Support both {ok,ref} and {success,data:{ref}} envelopes.
+  if (raw && typeof raw === 'object' && 'success' in raw && (raw as any).success) {
+    const d = (raw as any).data;
+    return { ok: true, ref: d?.ref ?? d?.id };
+  }
+  return raw as LeadResult;
 }
 
 /* ---------------- Media ---------------- */

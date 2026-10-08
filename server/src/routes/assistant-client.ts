@@ -44,8 +44,10 @@ async function ensureDemoClient(db: ReturnType<typeof getDb>) {
   const [c] = await db.select().from(schema.clients).where(eq(schema.clients.id, 'client-demo')).limit(1);
   if (!c) {
     await db.insert(schema.clients).values({
-      id: 'client-demo', userId: 'demo', name: 'Demo Client', email: 'demo@toluenetech.com', status: 'ACTIVE',
+      id: 'client-demo', userId: 'demo', name: 'Demo Client', email: 'demo@toluenetech.com', status: 'ACTIVE', accessCode: 'DEMO-2026',
     }).onConflictDoNothing();
+  } else if (!c.accessCode) {
+    await db.update(schema.clients).set({ accessCode: 'DEMO-2026' }).where(eq(schema.clients.id, 'client-demo'));
   }
   const [p] = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.id, 'cp-demo-1')).limit(1);
   if (!p) {
@@ -113,17 +115,18 @@ app.post('/', async (c) => {
   let userError: string | null = null;
   try {
     const ai = getAI(env);
-    const { primary, fallbackChain: fb } = resolveForSurface(env, 'client');
+    const surf = await resolveForSurface(env, 'client');
+    const effectiveTools = surf.toolsEnabled ? CLIENT_TOOLS.filter(t => surf.toolsEnabled!.includes(t.name)) : CLIENT_TOOLS;
     const r = await ai.run(
       {
         messages,
-        model: primary,
-        fallbackModels: fb.slice(1),
+        model: surf.primary,
+        fallbackModels: surf.fallbackChain.slice(1),
         tier: 'reasoning',
-        tools: CLIENT_TOOLS,
+        tools: effectiveTools,
         maxTurns: 5,
-        maxTokens: 900,
-        timeoutMs: 35_000,
+        maxTokens: surf.maxTokens,
+        timeoutMs: surf.timeoutMs,
         label: 'client',
       },
       buildHandlers({ kind: 'client', auth: { uid: auth.uid, email: auth.email, name: auth.name, clientId: auth.clientId }, db, env, ip }),

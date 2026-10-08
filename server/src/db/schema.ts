@@ -17,6 +17,15 @@ export const clientStatusEnum = pgEnum('client_status', ['ACTIVE', 'INACTIVE']);
 export const milestoneStatusEnum = pgEnum('milestone_status', ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'APPROVED']);
 export const taskStatusEnum = pgEnum('task_status', ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED']);
 export const messageContextEnum = pgEnum('message_context', ['PROJECT', 'LEAD', 'GENERAL']);
+export const auditActionEnum = pgEnum('audit_action', [
+  'LOGIN_SUCCESS', 'LOGIN_FAILURE', 'LOGOUT',
+  'CREATE', 'UPDATE', 'DELETE', 'PUBLISH', 'UNPUBLISH',
+  'AI_CONFIG_UPDATE', 'MODEL_CHANGE', 'SETTINGS_UPDATE',
+  'FILE_UPLOAD', 'FILE_DELETE',
+  'PERMISSION_CHANGE', 'PASSWORD_CHANGE', 'ACCESS_CODE_GENERATED',
+  'LEAD_CONVERT',
+]);
+export const fileVisibilityEnum = pgEnum('file_visibility', ['PUBLIC', 'PRIVATE']);
 
 const id = (name: string) => varchar(name, { length: 36 }).primaryKey().$defaultFn(() => crypto.randomUUID());
 const now = (name: string) => timestamp(name, { mode: 'date', withTimezone: true }).notNull().defaultNow();
@@ -214,13 +223,18 @@ export const clients = pgTable('clients', {
   id: id('id'),
   userId: varchar('user_id', { length: 128 }).unique(),     // Firebase uid
   name: varchar('name', { length: 160 }).notNull(),
-  email: varchar('email', { length: 240 }).notNull(),
+  email: varchar('email', { length: 240 }).notNull().unique(),
   phone: varchar('phone', { length: 40 }),
   company: varchar('company', { length: 180 }),
+  // accessCode is the 6-char code the client uses to log in via POST /client/login.
+  // Generated on create; regeneratable by admin. Stored in DB (NOT client-side).
+  accessCode: varchar('access_code', { length: 32 }),
+  // lastLoginAt is updated on successful client session issuance.
+  lastLoginAt: timestamp('last_login_at', { mode: 'date', withTimezone: true }),
   status: clientStatusEnum('status').notNull().default('ACTIVE'),
   createdAt: now('created_at'),
   updatedAt: now('updated_at'),
-});
+}, (t) => ({ emailIdx: index('cl_email_idx').on(t.email) }));
 
 /* ---------- Projects for clients (separate from public portfolio projects) ---------- */
 export const clientProjects = pgTable('client_projects', {
@@ -265,13 +279,16 @@ export const tasks = pgTable('tasks', {
 export const projectFiles = pgTable('project_files', {
   id: id('id'),
   projectId: varchar('project_id', { length: 36 }).notNull(),
+  clientId: varchar('client_id', { length: 36 }),              // denormalized for quick authorization
   uploadedBy: varchar('uploaded_by', { length: 128 }),        // uid
+  uploadedByRole: varchar('uploaded_by_role', { length: 16 }), // admin|client
   filename: varchar('filename', { length: 240 }).notNull(),
   r2Key: varchar('r2_key', { length: 500 }).notNull(),
   sizeBytes: integer('size_bytes'),
   mimeType: varchar('mime_type', { length: 120 }),
+  visibility: fileVisibilityEnum('visibility').notNull().default('PRIVATE'),
   createdAt: now('created_at'),
-}, (t) => ({ projectIdx: index('pf_proj_idx').on(t.projectId) }));
+}, (t) => ({ projectIdx: index('pf_proj_idx').on(t.projectId), clientIdx: index('pf_client_idx').on(t.clientId) }));
 
 export const messages = pgTable('messages', {
   id: id('id'),
@@ -310,9 +327,17 @@ export const media = pgTable('media', {
   width: integer('width'),
   height: integer('height'),
   alt: varchar('alt', { length: 300 }),
+  visibility: fileVisibilityEnum('visibility').notNull().default('PUBLIC'),
+  // Optional tagging so media can be reused across entities
+  role: varchar('role', { length: 60 }),        // e.g. 'founder_image', 'brand_cv'
+  projectId: varchar('project_id', { length: 36 }), // for project-scoped private files
+  clientId: varchar('client_id', { length: 36 }),
   uploadedBy: varchar('uploaded_by', { length: 128 }),
   createdAt: now('created_at'),
-});
+}, (t) => ({
+  r2Idx: uniqueIndex('media_r2_idx').on(t.r2Key),
+  projectIdx: index('media_proj_idx').on(t.projectId),
+}));
 
 /* ---------- Assistant conversations (RAG + lead-capture context) ---------- */
 export const assistantSessions = pgTable('assistant_sessions', {
@@ -347,10 +372,53 @@ export const adminUsers = pgTable('admin_users', {
 export const notifications = pgTable('notifications', {
   id: id('id'),
   uid: varchar('uid', { length: 128 }),                      // target admin uid, null = broadcast
+  clientId: varchar('client_id', { length: 36 }),            // target client (scoped)
   type: varchar('type', { length: 40 }).notNull(),           // lead_new/message_new/...
   title: varchar('title', { length: 240 }).notNull(),
   body: text('body'),
   link: varchar('link', { length: 300 }),
   isRead: boolean('is_read').notNull().default(false),
   createdAt: now('created_at'),
-}, (t) => ({ uidIdx: index('n_uid_idx').on(t.uid) }));
+}, (t) => ({ uidIdx: index('n_uid_idx').on(t.uid), cIdx: index('n_c_idx').on(t.clientId) }));
+
+/* ---------- Audit logs (append-only) ---------- */
+export const auditLogs = pgTable('audit_logs', {
+  id: id('id'),
+  actorType: varchar('actor_type', { length: 16 }).notNull(), // admin|client|public|system|ai
+  actorId: varchar('actor_id', { length: 128 }),
+  actorRole: varchar('actor_role', { length: 32 }),
+  action: auditActionEnum('action').notNull(),
+  entity: varchar('entity', { length: 64 }).notNull(),
+  entityId: varchar('entity_id', { length: 36 }),
+  success: boolean('success').notNull().default(true),
+  ip: varchar('ip', { length: 64 }),
+  ua: varchar('ua', { length: 300 }),
+  meta: jsonb('meta').$type<Record<string, unknown>>().default({}),
+  createdAt: now('created_at'),
+}, (t) => ({
+  actorIdx: index('al_actor_idx').on(t.actorType, t.actorId),
+  entityIdx: index('al_entity_idx').on(t.entity, t.entityId),
+  tsIdx: index('al_ts_idx').on(t.createdAt),
+}));
+
+/* ---------- AI usage (per-request telemetry) ---------- */
+export const aiUsage = pgTable('ai_usage', {
+  id: id('id'),
+  surface: varchar('surface', { length: 24 }).notNull(),     // public/admin/client/planner/advisor/idea
+  model: varchar('model', { length: 160 }).notNull(),
+  fallbackUsed: boolean('fallback_used').notNull().default(false),
+  reasonFallback: varchar('reason_fallback', { length: 80 }),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  latencyMs: integer('latency_ms'),
+  errorCode: varchar('error_code', { length: 80 }),
+  toolCalls: jsonb('tool_calls').$type<string[]>().default([]),
+  sessionId: varchar('session_id', { length: 36 }),
+  clientId: varchar('client_id', { length: 36 }),
+  ip: varchar('ip', { length: 64 }),
+  createdAt: now('created_at'),
+}, (t) => ({
+  surfaceIdx: index('ai_surf_idx').on(t.surface, t.createdAt),
+  modelIdx: index('ai_model_idx').on(t.model),
+  sessionIdx: index('ai_sess_idx').on(t.sessionId),
+}));

@@ -8,24 +8,50 @@
  *   GET  /ai/config, /ai/models, /ai/status, /ai/conversations, /ai/conversations/:id/messages
  *   POST /ai/config, /ai/conversations/:id/rename
  *   DEL  /ai/conversations/:id
+ *
+ * Phase 1 hardening:
+ *   - Standardized {success, data|error} response envelope via onError.
+ *   - All PUT bodies are field-whitelisted (no mass-assignment).
+ *   - POST /clients generates + persists accessCode.
+ *   - POST /clients/:id/regenerate-code rotates access codes.
+ *   - AI config save invalidates resolveForSurface() cache immediately.
+ *   - Audit logs are written for all mutations.
+ *   - Input lengths constrained (mirrors public /leads constraints).
+ *   - Legacy response shapes are preserved where the UI depends on them
+ *     ({ items, total } for list endpoints, plain objects for gets).
  */
 import { Hono } from 'hono';
 import { eq, desc, asc, like, or, and, count } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import type { Env } from '../env';
-import { authAdmin } from '../lib/auth';
+import { authAdmin, type AuthContext } from '../lib/auth';
 import { normaliseModelId, MODEL_CATALOG } from '../ai/models';
+import { ApiError, jsonError } from '../lib/errors';
+import { writeAudit } from '../lib/audit';
+import { pick } from '../lib/validate';
+import { generateAccessCode } from './auth';
+import { buildConfigSnapshot, invalidateCache } from '../ai/surface-config';
 
 const app = new Hono<{ Bindings: Env }>();
 
+// ---------- Middleware ----------
 app.use('*', async (c, next) => {
-  try { await authAdmin(c.req.raw, c.env as Env); }
-  catch { return c.json({ error: 'Unauthorized' }, 401); }
+  try {
+    const a = await authAdmin(c.req.raw, c.env as Env);
+    (c as any).set('auth', a);
+  } catch (e) {
+    if (e instanceof ApiError) return c.json({ success: false, error: { code: e.code, message: e.message } }, e.status as any);
+    return c.json({ success: false, error: { code: 'UNAUTHORIZED', message: 'Admin authentication required.' } }, 401 as any);
+  }
   await next();
 });
+app.onError((err, c) => jsonError(c, err));
 
-// ---------- helpers ----------
+function auth(c: any): AuthContext { return c.get('auth') as AuthContext; }
 type DB = ReturnType<typeof getDb>;
+const uid = () => crypto.randomUUID();
+const now = () => new Date();
+
 function combine(...parts: any[]): any {
   const p = parts.filter(x => x !== undefined && x !== null);
   if (p.length === 0) return undefined;
@@ -37,17 +63,29 @@ const searchLike = (q: string | undefined, cols: any[]) => {
   const term = `%${q}%`;
   return or(...cols.map(c => like(c, term)));
 };
-async function counted(db: DB, table: any, where: any, orderBy: any, limit = 200) {
+async function counted(db: DB, table: any, where: any, orderBy: any, limit = 500) {
   const [cnt] = await db.select({ c: count() }).from(table).where(where);
   const items = await db.select().from(table).where(where).orderBy(orderBy).limit(limit);
   return { items, total: Number(cnt.c) };
 }
-const uid = () => crypto.randomUUID();
-const now = () => new Date();
 function pubCond(table: any, pub: string | null) {
   if (pub === 'published') return eq(table.isPublished, true);
   if (pub === 'draft') return eq(table.isPublished, false);
   return undefined;
+}
+function slugify(input: string, prefix: string): string {
+  const base = String(input || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return base ? base.slice(0, 120) : `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+async function getOr404(db: any, table: any, id: string, msg: string = 'Not found.'): Promise<any> {
+  const [row] = await db.select().from(table).where(eq(table.id, id)).limit(1);
+  if (!row) throw new ApiError({ code: 'NOT_FOUND', message: msg });
+  return row;
+}
+function sanitizeStr(v: unknown, max: number): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().slice(0, max);
+  return t.length ? t : null;
 }
 
 // ---------- Dashboard ----------
@@ -79,180 +117,185 @@ app.get('/stats', async (c) => {
   });
 });
 
-// ---------- Services ----------
-app.get('/services', async (c) => {
-  const db = getDb(c.env as Env);
-  const url = new URL(c.req.url);
-  const q = url.searchParams.get('q') || undefined;
-  const pub = url.searchParams.get('published');
-  const w = combine(searchLike(q, [schema.services.title, schema.services.slug]), pubCond(schema.services, pub));
-  const { items, total } = await counted(db, schema.services, w, asc(schema.services.order));
-  return c.json({ items, total });
-});
-app.get('/services/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.services).where(eq(schema.services.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/services', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const slug = b.slug || String(b.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, 'svc-'+uid().slice(0,6));
-  const [row] = await db.insert(schema.services).values({
-    id: uid(), slug, title: b.title || '', shortDescription: b.shortDescription || b.description || '',
-    longDescription: b.longDescription || b.description || '', icon: b.icon || 'Globe',
-    capabilities: b.capabilities || [], relatedProjectIds: b.relatedProjectIds || [],
-    isPublished: !!b.isPublished, isFeatured: !!b.isFeatured, order: b.order ?? 0,
+// ======================================================================
+// Generic CRUD helpers — whitelisted.
+// Field lists MUST enumerate every mutable column (never id/createdAt/updatedAt).
+// ======================================================================
+
+// Services
+const SERVICE_FIELDS = ['slug','title','shortDescription','longDescription','icon','capabilities','relatedProjectIds','isPublished','isFeatured','order','seoTitle','seoDescription','seoOgImage'] as const;
+// Projects (public portfolio)
+const PROJECT_FIELDS = ['slug','title','clientName','clientLogo','role','platform','framework','completionDate','status','coverImage','gallery','videoUrl','challenge','objective','solution','features','process','results','metrics','liveUrl','githubUrl','appStoreUrl','playStoreUrl','serviceIds','isPublished','isFeatured','hasClientPermission','order','seoTitle','seoDescription','seoOgImage'] as const;
+// FAQs
+const FAQ_FIELDS = ['question','answer','category','order','isPublished'] as const;
+// Testimonials
+const TESTIMONIAL_FIELDS = ['name','role','company','photo','testimonial','relatedProjectId','isFeatured','isPublished','order'] as const;
+// Insights
+const INSIGHT_FIELDS = ['slug','title','excerpt','coverImage','content','author','category','tags','publishDate','seoTitle','seoDescription','seoOgImage','isFeatured','isDraft'] as const;
+// Pricing
+const PRICING_FIELDS = ['name','tagline','priceMonthly','priceOneTime','currency','features','ctaLabel','ctaUrl','isFeatured','isPublished','order'] as const;
+// Products
+const PRODUCT_FIELDS = ['slug','name','description','logo','screenshots','features','techStack','status','demoUrl','websiteUrl','caseStudyUrl','isPublished','order'] as const;
+// Leads (admin can edit status, notes, followUp, convertedClientId; never ref)
+const LEAD_FIELDS = ['name','email','phone','company','services','requirements','budget','timeline','source','notes','status','followUpDate','convertedClientId'] as const;
+// Clients (admin edits name/email/phone/company/status; accessCode is set via dedicated endpoint)
+const CLIENT_FIELDS = ['userId','name','email','phone','company','status'] as const;
+// Client projects (jobs)
+const CP_FIELDS = ['clientId','publicProjectId','title','description','status','progress','startDate','dueDate'] as const;
+// Milestones
+const MS_FIELDS = ['projectId','title','description','dueDate','status','order'] as const;
+
+function genCrud<List, Item>(opts: {
+  entity: string;
+  table: any;
+  listOrder: any;
+  searchCols: any[];
+  fields: readonly string[];
+  mapInsert?: (b: any) => any;
+  slugPrefix?: string;
+}) {
+  const { entity, table, listOrder, searchCols, fields, mapInsert, slugPrefix } = opts;
+  const whitelist = [...fields];
+
+  app.get(`/${entity}s`, async (c) => {
+    const db = getDb(c.env as Env);
+    const url = new URL(c.req.url);
+    const q = url.searchParams.get('q') || undefined;
+    const pub = url.searchParams.get('published');
+    const extra: Record<string, any> = {};
+    for (const [k, col] of Object.entries(extra)) {
+      const v = url.searchParams.get(k) || undefined;
+      if (v) extra[k] = eq(col, v);
+    }
+    const w = combine(searchLike(q, searchCols), pub ? pubCond(table, pub) : undefined);
+    const { items, total } = await counted(db, table, w, listOrder);
+    return c.json({ items, total });
+  });
+
+  app.get(`/${entity}s/:id`, async (c) => {
+    const db = getDb(c.env as Env);
+    const row = await getOr404(db, table, c.req.param('id'), `${entity} not found.`);
+    return c.json(row);
+  });
+
+  app.post(`/${entity}s`, async (c) => {
+    const env = c.env as Env;
+    const db = getDb(env);
+    let b: any;
+    try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON body.' }); }
+    const insert = mapInsert ? mapInsert(b) : pick(b, whitelist as any);
+    insert.id = uid();
+    if (slugPrefix && !insert.slug) insert.slug = slugify(b.title || b.name || '', slugPrefix);
+    if (!insert.slug && slugPrefix) insert.slug = `${slugPrefix}-${insert.id.slice(0, 8)}`;
+    const rows = await db.insert(table).values(insert).returning() as any[];
+    const row = rows[0];
+    writeAudit(env, { action: 'CREATE', entity: `${entity}s`, entityId: row.id, auth: auth(c), req: c.req.raw });
+    return c.json(row, 201);
+  });
+
+  app.put(`/${entity}s/:id`, async (c) => {
+    const env = c.env as Env;
+    const db = getDb(env);
+    const id = c.req.param('id');
+    await getOr404(db, table, id, `${entity} not found.`);
+    let b: any;
+    try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON body.' }); }
+    const patch: any = { ...pick(b, whitelist as any), updatedAt: now() };
+    if (Object.keys(patch).length === 1) throw new ApiError({ code: 'BAD_REQUEST', message: 'No valid fields to update.' });
+    const [row] = await db.update(table).set(patch).where(eq(table.id, id)).returning();
+    writeAudit(env, { action: 'UPDATE', entity: `${entity}s`, entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
+    return c.json(row);
+  });
+
+  app.delete(`/${entity}s/:id`, async (c) => {
+    const env = c.env as Env;
+    const db = getDb(env);
+    const id = c.req.param('id');
+    await getOr404(db, table, id, `${entity} not found.`);
+    await db.delete(table).where(eq(table.id, id));
+    writeAudit(env, { action: 'DELETE', entity: `${entity}s`, entityId: id, auth: auth(c), req: c.req.raw });
+    return c.json({ ok: true });
+  });
+}
+
+// Services
+genCrud({
+  entity: 'service', table: schema.services, listOrder: asc(schema.services.order),
+  searchCols: [schema.services.title, schema.services.slug, schema.services.shortDescription],
+  fields: SERVICE_FIELDS, slugPrefix: 'svc',
+  mapInsert: (b) => ({
+    slug: b.slug || slugify(b.title || '', 'svc'),
+    title: b.title || '',
+    shortDescription: b.shortDescription || b.description || '',
+    longDescription: b.longDescription || b.description || '',
+    icon: b.icon || 'Globe',
+    capabilities: Array.isArray(b.capabilities) ? b.capabilities.slice(0, 30) : [],
+    relatedProjectIds: Array.isArray(b.relatedProjectIds) ? b.relatedProjectIds.slice(0, 30) : [],
+    isPublished: !!b.isPublished, isFeatured: !!b.isFeatured,
+    order: Number.isInteger(b.order) ? b.order : 0,
     seoTitle: b.seoTitle || null, seoDescription: b.seoDescription || null, seoOgImage: b.seoOgImage || null,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/services/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.services).set({ ...b, updatedAt: now() }).where(eq(schema.services.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/services/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.services).where(eq(schema.services.id, c.req.param('id')));
-  return c.json({ ok: true });
+  }),
 });
 
-// ---------- Projects ----------
-app.get('/projects', async (c) => {
-  const db = getDb(c.env as Env);
-  const url = new URL(c.req.url);
-  const q = url.searchParams.get('q') || undefined;
-  const pub = url.searchParams.get('published');
-  const w = combine(searchLike(q, [schema.projects.title, schema.projects.slug, schema.projects.clientName]), pubCond(schema.projects, pub));
-  const { items, total } = await counted(db, schema.projects, w, desc(schema.projects.createdAt));
-  return c.json({ items, total });
-});
-app.get('/projects/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.projects).where(eq(schema.projects.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/projects', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const slug = b.slug || String(b.title || 'prj').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, 'prj-'+uid().slice(0,6));
-  const [row] = await db.insert(schema.projects).values({
-    id: uid(), slug, title: b.title || '', clientName: b.clientName || null, role: b.role || null,
+// Projects
+genCrud({
+  entity: 'project', table: schema.projects, listOrder: desc(schema.projects.createdAt),
+  searchCols: [schema.projects.title, schema.projects.slug, schema.projects.clientName],
+  fields: PROJECT_FIELDS, slugPrefix: 'prj',
+  mapInsert: (b) => ({
+    slug: b.slug || slugify(b.title || '', 'prj'),
+    title: b.title || '', clientName: b.clientName || null, clientLogo: b.clientLogo || null, role: b.role || null,
     platform: b.platform || null, framework: b.framework || null,
-    completionDate: b.completionDate || null, status: b.status || 'ACTIVE',
-    coverImage: b.coverImage || null, gallery: b.gallery || [], videoUrl: b.videoUrl || null,
+    completionDate: b.completionDate || null,
+    status: b.status || 'ACTIVE',
+    coverImage: b.coverImage || null, gallery: Array.isArray(b.gallery) ? b.gallery.slice(0, 50) : [], videoUrl: b.videoUrl || null,
     challenge: b.challenge || null, objective: b.objective || null, solution: b.solution || null,
-    features: b.features || [], process: b.process || [], results: b.results || null, metrics: b.metrics || [],
+    features: Array.isArray(b.features) ? b.features.slice(0, 50) : [],
+    process: Array.isArray(b.process) ? b.process.slice(0, 30) : [],
+    results: b.results || null,
+    metrics: Array.isArray(b.metrics) ? b.metrics.slice(0, 30) : [],
     liveUrl: b.liveUrl || null, githubUrl: b.githubUrl || null,
     appStoreUrl: b.appStoreUrl || null, playStoreUrl: b.playStoreUrl || null,
-    serviceIds: b.serviceIds || [], isPublished: !!b.isPublished, isFeatured: !!b.isFeatured,
-    hasClientPermission: !!b.hasClientPermission, order: b.order ?? 0,
+    serviceIds: Array.isArray(b.serviceIds) ? b.serviceIds.slice(0, 30) : [],
+    isPublished: !!b.isPublished, isFeatured: !!b.isFeatured,
+    hasClientPermission: !!b.hasClientPermission,
+    order: Number.isInteger(b.order) ? b.order : 0,
     seoTitle: b.seoTitle || null, seoDescription: b.seoDescription || null, seoOgImage: b.seoOgImage || null,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/projects/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.projects).set({ ...b, updatedAt: now() }).where(eq(schema.projects.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/projects/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.projects).where(eq(schema.projects.id, c.req.param('id')));
-  return c.json({ ok: true });
+  }),
 });
 
-// ---------- FAQs ----------
-app.get('/faqs', async (c) => {
-  const db = getDb(c.env as Env);
-  const url = new URL(c.req.url);
-  const q = url.searchParams.get('q') || undefined;
-  const pub = url.searchParams.get('published');
-  const cat = url.searchParams.get('category') || undefined;
-  const w = combine(searchLike(q, [schema.faqs.question, schema.faqs.answer]), pubCond(schema.faqs, pub), cat ? eq(schema.faqs.category, cat) : undefined);
-  const { items, total } = await counted(db, schema.faqs, w, asc(schema.faqs.order));
-  return c.json({ items, total });
-});
-app.get('/faqs/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.faqs).where(eq(schema.faqs.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/faqs', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.insert(schema.faqs).values({
-    id: uid(), question: b.question || '', answer: b.answer || '',
-    category: b.category || 'General', order: b.order ?? 0, isPublished: b.isPublished !== false,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/faqs/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.faqs).set(b).where(eq(schema.faqs.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/faqs/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.faqs).where(eq(schema.faqs.id, c.req.param('id')));
-  return c.json({ ok: true });
+// FAQs
+genCrud({
+  entity: 'faq', table: schema.faqs, listOrder: asc(schema.faqs.order),
+  searchCols: [schema.faqs.question, schema.faqs.answer],
+  fields: FAQ_FIELDS,
+  mapInsert: (b) => ({
+    question: b.question || '', answer: b.answer || '',
+    category: b.category || 'General',
+    order: Number.isInteger(b.order) ? b.order : 0,
+    isPublished: b.isPublished !== false,
+  }),
 });
 
-// ---------- Testimonials ----------
-app.get('/testimonials', async (c) => {
-  const db = getDb(c.env as Env);
-  const url = new URL(c.req.url);
-  const q = url.searchParams.get('q') || undefined;
-  const pub = url.searchParams.get('published');
-  const w = combine(searchLike(q, [schema.testimonials.name, schema.testimonials.company, schema.testimonials.testimonial]), pubCond(schema.testimonials, pub));
-  const { items, total } = await counted(db, schema.testimonials, w, asc(schema.testimonials.order));
-  return c.json({ items, total });
-});
-app.get('/testimonials/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.testimonials).where(eq(schema.testimonials.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/testimonials', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.insert(schema.testimonials).values({
-    id: uid(), name: b.name || '', role: b.role || null, company: b.company || null, photo: b.photo || null,
+// Testimonials
+genCrud({
+  entity: 'testimonial', table: schema.testimonials, listOrder: asc(schema.testimonials.order),
+  searchCols: [schema.testimonials.name, schema.testimonials.company, schema.testimonials.testimonial],
+  fields: TESTIMONIAL_FIELDS,
+  mapInsert: (b) => ({
+    name: b.name || '', role: b.role || null, company: b.company || null, photo: b.photo || null,
     testimonial: b.testimonial || '', relatedProjectId: b.relatedProjectId || null,
-    isFeatured: !!b.isFeatured, isPublished: b.isPublished !== false, order: b.order ?? 0,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/testimonials/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.testimonials).set(b).where(eq(schema.testimonials.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/testimonials/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.testimonials).where(eq(schema.testimonials.id, c.req.param('id')));
-  return c.json({ ok: true });
+    isFeatured: !!b.isFeatured, isPublished: b.isPublished !== false,
+    order: Number.isInteger(b.order) ? b.order : 0,
+  }),
 });
 
-// ---------- Insights ----------
-app.get('/insights', async (c) => {
+// Insights (override list to include status filter + isPublished mapping)
+const insightList = app.get('/insights', async (c) => {
   const db = getDb(c.env as Env);
   const url = new URL(c.req.url);
   const q = url.searchParams.get('q') || undefined;
-  const status = url.searchParams.get('status') || 'all'; // all|published|draft
+  const status = url.searchParams.get('status') || 'all';
   const w = combine(
     searchLike(q, [schema.insights.title, schema.insights.excerpt, schema.insights.content]),
     status === 'published' ? eq(schema.insights.isDraft, false) : status === 'draft' ? eq(schema.insights.isDraft, true) : undefined,
@@ -260,115 +303,83 @@ app.get('/insights', async (c) => {
   const { items, total } = await counted(db, schema.insights, w, desc(schema.insights.createdAt));
   return c.json({ items: items.map((i: any) => ({ ...i, isPublished: !i.isDraft })), total });
 });
+// Attach standard CRUD for insights manually (slug/booleans)
 app.get('/insights/:id', async (c) => {
   const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.insights).where(eq(schema.insights.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json({ ...row, isPublished: !(row as any).isDraft });
+  const row = await getOr404(db, schema.insights, c.req.param('id'), 'Insight not found.');
+  return c.json({ ...(row as any), isPublished: !(row as any).isDraft });
 });
 app.post('/insights', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const slug = b.slug || String(b.title || 'insight').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, 'ins-'+uid().slice(0,6));
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
   const [row] = await db.insert(schema.insights).values({
-    id: uid(), slug, title: b.title || '', excerpt: b.excerpt || '', coverImage: b.coverImage || null,
-    content: b.content || '', author: b.author || null, category: b.category || 'Technology',
-    tags: b.tags || [], publishDate: b.publishDate || null,
+    id: uid(),
+    slug: b.slug || slugify(b.title || '', 'ins'),
+    title: b.title || '', excerpt: b.excerpt || '', coverImage: b.coverImage || null,
+    content: b.content || '', author: b.author || null,
+    category: b.category || 'Technology', tags: Array.isArray(b.tags) ? b.tags.slice(0, 30) : [],
+    publishDate: b.publishDate || null,
     seoTitle: b.seoTitle || null, seoDescription: b.seoDescription || null, seoOgImage: b.seoOgImage || null,
     isFeatured: !!b.isFeatured, isDraft: b.isDraft !== false,
   }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'insights', entityId: row.id, auth: auth(c), req: c.req.raw });
   return c.json(row, 201);
 });
 app.put('/insights/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.insights).set({ ...b, updatedAt: now() }).where(eq(schema.insights.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.insights, id, 'Insight not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, INSIGHT_FIELDS), updatedAt: now() };
+  const [row] = await db.update(schema.insights).set(patch).where(eq(schema.insights.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'insights', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
 app.delete('/insights/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.insights).where(eq(schema.insights.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.insights, id, 'Insight not found.');
+  await db.delete(schema.insights).where(eq(schema.insights.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'insights', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
-// ---------- Pricing ----------
-app.get('/pricing', async (c) => {
-  const db = getDb(c.env as Env);
-  const items = await db.select().from(schema.pricingPlans).orderBy(asc(schema.pricingPlans.order));
-  return c.json({ items, total: items.length });
-});
-app.get('/pricing/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.pricingPlans).where(eq(schema.pricingPlans.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/pricing', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.insert(schema.pricingPlans).values({
-    id: uid(), name: b.name || '', tagline: b.tagline || null,
+// Pricing
+genCrud({
+  entity: 'pricing', table: schema.pricingPlans, listOrder: asc(schema.pricingPlans.order),
+  searchCols: [schema.pricingPlans.name, schema.pricingPlans.tagline],
+  fields: PRICING_FIELDS,
+  mapInsert: (b) => ({
+    name: b.name || '', tagline: b.tagline || null,
     priceMonthly: b.priceMonthly ?? null, priceOneTime: b.priceOneTime ?? null,
-    currency: b.currency || 'USD', features: b.features || [],
+    currency: b.currency || 'USD',
+    features: Array.isArray(b.features) ? b.features.slice(0, 40) : [],
     ctaLabel: b.ctaLabel || 'Start a project', ctaUrl: b.ctaUrl || null,
-    isFeatured: !!b.isFeatured, isPublished: b.isPublished !== false, order: b.order ?? 0,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/pricing/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.pricingPlans).set(b).where(eq(schema.pricingPlans.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/pricing/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.pricingPlans).where(eq(schema.pricingPlans.id, c.req.param('id')));
-  return c.json({ ok: true });
+    isFeatured: !!b.isFeatured, isPublished: b.isPublished !== false,
+    order: Number.isInteger(b.order) ? b.order : 0,
+  }),
 });
 
-// ---------- Products ----------
-app.get('/products', async (c) => {
-  const db = getDb(c.env as Env);
-  const url = new URL(c.req.url);
-  const q = url.searchParams.get('q') || undefined;
-  const pub = url.searchParams.get('published');
-  const w = combine(searchLike(q, [schema.products.name, schema.products.description, schema.products.slug]), pubCond(schema.products, pub));
-  const { items, total } = await counted(db, schema.products, w, desc(schema.products.createdAt));
-  return c.json({ items, total });
-});
-app.get('/products/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.products).where(eq(schema.products.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.post('/products', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const slug = b.slug || String(b.name || 'product').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, 'prod-'+uid().slice(0,6));
-  const [row] = await db.insert(schema.products).values({
-    id: uid(), slug, name: b.name || '', description: b.description || null,
-    logo: b.logo || null, screenshots: b.screenshots || [], features: b.features || [],
-    techStack: b.techStack || [], status: b.status || 'IDEA',
+// Products
+genCrud({
+  entity: 'product', table: schema.products, listOrder: desc(schema.products.createdAt),
+  searchCols: [schema.products.name, schema.products.description, schema.products.slug],
+  fields: PRODUCT_FIELDS, slugPrefix: 'prod',
+  mapInsert: (b) => ({
+    slug: b.slug || slugify(b.name || '', 'prod'),
+    name: b.name || '', description: b.description || null, logo: b.logo || null,
+    screenshots: Array.isArray(b.screenshots) ? b.screenshots.slice(0, 30) : [],
+    features: Array.isArray(b.features) ? b.features.slice(0, 50) : [],
+    techStack: Array.isArray(b.techStack) ? b.techStack.slice(0, 30) : [],
+    status: b.status || 'IDEA',
     demoUrl: b.demoUrl || null, websiteUrl: b.websiteUrl || null, caseStudyUrl: b.caseStudyUrl || null,
-    isPublished: !!b.isPublished, order: b.order ?? 0,
-  }).returning();
-  return c.json(row, 201);
-});
-app.put('/products/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const [row] = await db.update(schema.products).set({ ...b, updatedAt: now() }).where(eq(schema.products.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
-  return c.json(row);
-});
-app.delete('/products/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.products).where(eq(schema.products.id, c.req.param('id')));
-  return c.json({ ok: true });
+    isPublished: !!b.isPublished, order: Number.isInteger(b.order) ? b.order : 0,
+  }),
 });
 
 // ---------- Leads ----------
@@ -391,38 +402,58 @@ app.get('/leads/:id', async (c) => {
   const id = c.req.param('id');
   const [row] = await db.select().from(schema.leads)
     .where(or(eq(schema.leads.id, id), eq(schema.leads.ref, id))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  if (!row) throw new ApiError({ code: 'NOT_FOUND', message: 'Lead not found.' });
   return c.json(row);
 });
 app.post('/leads', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const id = uid();
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const name = sanitizeStr(b.name, 160);
+  const email = sanitizeStr(b.email, 240);
+  if (!name) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Name is required.' });
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'A valid email is required.' });
+  // Generate ref.
   const recent = await db.select({ ref: schema.leads.ref }).from(schema.leads).orderBy(desc(schema.leads.createdAt)).limit(50);
   let maxN = 1000;
   for (const r of recent) { const m = String(r.ref).match(/TT-(\d+)/); if (m) maxN = Math.max(maxN, parseInt(m[1], 10)); }
   const ref = `TT-${maxN + 1}`;
   const [row] = await db.insert(schema.leads).values({
-    id, ref, name: b.name || '', email: b.email || '', phone: b.phone || null,
-    company: b.company || null, services: b.services || [], requirements: b.requirements || null,
-    budget: b.budget || null, timeline: b.timeline || null, source: b.source || 'manual',
-    notes: b.notes || null, status: (b.status || 'NEW').toUpperCase(),
-    followUpDate: b.followUpDate || null, convertedClientId: b.convertedClientId || null,
+    id: uid(), ref, name, email,
+    phone: sanitizeStr(b.phone, 40), company: sanitizeStr(b.company, 180),
+    services: Array.isArray(b.services) ? b.services.filter((s: any) => typeof s === 'string').slice(0, 10) : [],
+    requirements: sanitizeStr(b.requirements, 4000),
+    budget: sanitizeStr(b.budget, 80), timeline: sanitizeStr(b.timeline, 80),
+    source: sanitizeStr(b.source, 80) || 'manual',
+    notes: sanitizeStr(b.notes, 8000),
+    status: (b.status || 'NEW').toUpperCase(),
+    followUpDate: b.followUpDate || null,
+    convertedClientId: b.convertedClientId || null,
   }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'leads', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { ref, source: row.source } });
   return c.json(row, 201);
 });
 app.put('/leads/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const patch: any = { ...b, updatedAt: now() };
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.leads, id, 'Lead not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, LEAD_FIELDS), updatedAt: now() };
   if (patch.status) patch.status = String(patch.status).toUpperCase();
-  const [row] = await db.update(schema.leads).set(patch).where(eq(schema.leads.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  const [row] = await db.update(schema.leads).set(patch).where(eq(schema.leads.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
 app.delete('/leads/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.leads).where(eq(schema.leads.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.leads, id, 'Lead not found.');
+  await db.delete(schema.leads).where(eq(schema.leads.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'leads', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
@@ -437,38 +468,76 @@ app.get('/clients', async (c) => {
 });
 app.get('/clients/:id', async (c) => {
   const db = getDb(c.env as Env);
-  const [row] = await db.select().from(schema.clients).where(eq(schema.clients.id, c.req.param('id'))).limit(1);
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  const id = c.req.param('id');
+  const [row] = await db.select().from(schema.clients).where(eq(schema.clients.id, id)).limit(1);
+  if (!row) throw new ApiError({ code: 'NOT_FOUND', message: 'Client not found.' });
   const projects = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.clientId, row.id));
   return c.json({ ...row, projects });
 });
 app.post('/clients', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const id = uid();
-  const accessCode = b.accessCode || Math.random().toString(36).slice(2, 8).toUpperCase();
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const name = sanitizeStr(b.name, 160);
+  const email = sanitizeStr(b.email, 240);
+  if (!name || !email) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Name and email are required.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Invalid email.' });
+  // Check duplicate email.
+  const [existing] = await db.select().from(schema.clients).where(eq(schema.clients.email, email.toLowerCase())).limit(1);
+  if (existing) throw new ApiError({ code: 'CONFLICT', message: 'A client with that email already exists.' });
+  const accessCode = generateAccessCode();
   const [row] = await db.insert(schema.clients).values({
-    id, userId: b.userId || null, name: b.name || '', email: b.email || '',
-    phone: b.phone || null, company: b.company || null, status: String(b.status || 'ACTIVE').toUpperCase() as any,
+    id: uid(),
+    userId: b.userId || null,
+    name, email: email.toLowerCase(),
+    phone: sanitizeStr(b.phone, 40), company: sanitizeStr(b.company, 180),
+    status: String(b.status || 'ACTIVE').toUpperCase() as any,
+    accessCode,
   }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'clients', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { email: row.email } });
+  writeAudit(env, { action: 'ACCESS_CODE_GENERATED', entity: 'clients', entityId: row.id, auth: auth(c), req: c.req.raw });
   return c.json({ ...row, accessCode }, 201);
 });
 app.put('/clients/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const patch: any = { ...b, updatedAt: now() };
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.clients, id, 'Client not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, CLIENT_FIELDS), updatedAt: now() };
+  if (patch.email) patch.email = patch.email.toLowerCase();
   if (patch.status) patch.status = String(patch.status).toUpperCase();
-  const [row] = await db.update(schema.clients).set(patch).where(eq(schema.clients.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  const [row] = await db.update(schema.clients).set(patch).where(eq(schema.clients.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'clients', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
+app.post('/clients/:id/regenerate-code', async (c) => {
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.clients, id, 'Client not found.');
+  const accessCode = generateAccessCode();
+  await db.update(schema.clients).set({ accessCode, updatedAt: now() }).where(eq(schema.clients.id, id));
+  writeAudit(env, { action: 'ACCESS_CODE_GENERATED', entity: 'clients', entityId: id, auth: auth(c), req: c.req.raw });
+  return c.json({ success: true, data: { accessCode } });
+});
 app.delete('/clients/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.clients).where(eq(schema.clients.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.clients, id, 'Client not found.');
+  // RESTRICT: refuse to delete if client has active projects (until FKs are enforced).
+  const [proj] = await db.select({ c: count() }).from(schema.clientProjects)
+    .where(and(eq(schema.clientProjects.clientId, id), eq(schema.clientProjects.status, 'ACTIVE')));
+  if (Number(proj.c) > 0) throw new ApiError({ code: 'CONFLICT', message: 'Archive or reassign this client\'s active projects before deleting.' });
+  await db.delete(schema.clients).where(eq(schema.clients.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'clients', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
-// ---------- Client Projects (Jobs) ----------
+// ---------- Client projects (jobs) ----------
 app.get('/client-projects', async (c) => {
   const db = getDb(c.env as Env);
   const clientId = new URL(c.req.url).searchParams.get('clientId') || undefined;
@@ -477,27 +546,46 @@ app.get('/client-projects', async (c) => {
   return c.json({ items, total });
 });
 app.post('/client-projects', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  if (!b.clientId || !b.title) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'clientId and title are required.' });
+  // Verify client exists.
+  await getOr404(db, schema.clients, b.clientId, 'Client not found.');
   const [row] = await db.insert(schema.clientProjects).values({
-    id: uid(), clientId: b.clientId, title: b.title || '', description: b.description || null,
-    status: String(b.status || 'ACTIVE').toUpperCase() as any, progress: b.progress ?? 0,
+    id: uid(),
+    clientId: b.clientId, publicProjectId: b.publicProjectId || null,
+    title: String(b.title).slice(0, 220),
+    description: b.description || null,
+    status: String(b.status || 'ACTIVE').toUpperCase() as any,
+    progress: Number.isInteger(b.progress) ? Math.max(0, Math.min(100, b.progress)) : 0,
     startDate: b.startDate || null, dueDate: b.dueDate || null,
   }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'client_projects', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { clientId: row.clientId } });
   return c.json(row, 201);
 });
 app.put('/client-projects/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const patch: any = { ...b, updatedAt: now() };
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.clientProjects, id, 'Project not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, CP_FIELDS), updatedAt: now() };
   if (patch.status) patch.status = String(patch.status).toUpperCase();
-  const [row] = await db.update(schema.clientProjects).set(patch).where(eq(schema.clientProjects.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  if (patch.progress != null) patch.progress = Math.max(0, Math.min(100, patch.progress));
+  const [row] = await db.update(schema.clientProjects).set(patch).where(eq(schema.clientProjects.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'client_projects', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
 app.delete('/client-projects/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.clientProjects).where(eq(schema.clientProjects.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.clientProjects, id, 'Project not found.');
+  await db.delete(schema.clientProjects).where(eq(schema.clientProjects.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'client_projects', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
@@ -510,26 +598,40 @@ app.get('/milestones', async (c) => {
   return c.json({ items, total: items.length });
 });
 app.post('/milestones', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  if (!b.projectId || !b.title) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'projectId and title are required.' });
+  await getOr404(db, schema.clientProjects, b.projectId, 'Project not found.');
   const [row] = await db.insert(schema.milestones).values({
-    id: uid(), projectId: b.projectId, title: b.title || '', description: b.description || null,
-    dueDate: b.dueDate || null, status: String(b.status || 'PENDING').toUpperCase() as any, order: b.order ?? 0,
+    id: uid(), projectId: b.projectId, title: String(b.title).slice(0, 220),
+    description: b.description || null, dueDate: b.dueDate || null,
+    status: String(b.status || 'PENDING').toUpperCase() as any, order: Number.isInteger(b.order) ? b.order : 0,
   }).returning();
+  writeAudit(env, { action: 'CREATE', entity: 'milestones', entityId: row.id, auth: auth(c), req: c.req.raw, meta: { projectId: row.projectId } });
   return c.json(row, 201);
 });
 app.put('/milestones/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as any;
-  const patch: any = { ...b, updatedAt: now() };
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.milestones, id, 'Milestone not found.');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = { ...pick(b, MS_FIELDS), updatedAt: now() };
   if (patch.status) patch.status = String(patch.status).toUpperCase();
-  const [row] = await db.update(schema.milestones).set(patch).where(eq(schema.milestones.id, c.req.param('id'))).returning();
-  if (!row) return c.json({ error: 'Not found' }, 404);
+  const [row] = await db.update(schema.milestones).set(patch).where(eq(schema.milestones.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'milestones', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch).filter(k => k !== 'updatedAt') } });
   return c.json(row);
 });
 app.delete('/milestones/:id', async (c) => {
-  const db = getDb(c.env as Env);
-  await db.delete(schema.milestones).where(eq(schema.milestones.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  await getOr404(db, schema.milestones, id, 'Milestone not found.');
+  await db.delete(schema.milestones).where(eq(schema.milestones.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'milestones', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
@@ -542,13 +644,17 @@ app.get('/settings', async (c) => {
   return c.json(obj);
 });
 app.put('/settings/:key', async (c) => {
-  const db = getDb(c.env as Env);
+  const env = c.env as Env;
+  const db = getDb(env);
   const key = c.req.param('key');
-  const b = await c.req.json() as any;
+  if (!/^[a-z0-9_-]{1,64}$/i.test(key)) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Invalid setting key.' });
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
   const value = b.value ?? b;
   const existing = await db.select().from(schema.siteSettings).where(eq(schema.siteSettings.key, key)).limit(1);
   if (existing.length) await db.update(schema.siteSettings).set({ value, updatedAt: now() }).where(eq(schema.siteSettings.key, key));
   else await db.insert(schema.siteSettings).values({ key, value, updatedAt: now() });
+  writeAudit(env, { action: key === 'ai_config' ? 'AI_CONFIG_UPDATE' : 'SETTINGS_UPDATE', entity: 'site_settings', entityId: key, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true, key });
 });
 
@@ -559,11 +665,14 @@ app.get('/media', async (c) => {
   return c.json({ items, total });
 });
 app.delete('/media/:id', async (c) => {
-  const db = getDb(c.env as Env);
   const env = c.env as Env;
-  const [row] = await db.select().from(schema.media).where(eq(schema.media.id, c.req.param('id'))).limit(1);
-  if (row?.r2Key) { try { await env.ASSETS.delete(row.r2Key); } catch { /* ignore */ } }
-  await db.delete(schema.media).where(eq(schema.media.id, c.req.param('id')));
+  const db = getDb(env);
+  const id = c.req.param('id');
+  const [row] = await db.select().from(schema.media).where(eq(schema.media.id, id)).limit(1);
+  if (!row) throw new ApiError({ code: 'NOT_FOUND', message: 'Media not found.' });
+  if (row.r2Key) { try { await env.ASSETS.delete(row.r2Key); } catch { /* ignore */ } }
+  await db.delete(schema.media).where(eq(schema.media.id, id));
+  writeAudit(env, { action: 'FILE_DELETE', entity: 'media', entityId: id, auth: auth(c), req: c.req.raw, meta: { key: row.r2Key } });
   return c.json({ ok: true });
 });
 
@@ -572,41 +681,13 @@ app.delete('/media/:id', async (c) => {
 // =============================================================
 const SURFACES = ['public', 'admin', 'client', 'planner', 'advisor', 'idea'] as const;
 type Surface = typeof SURFACES[number];
-const SURF_KEYS: Record<Surface, { primary: string; fallback: string; enabled: string }> = {
-  public:  { primary: 'AI_MODEL_PUBLIC',   fallback: 'AI_MODEL_FALLBACK_PUBLIC',  enabled: 'AI_FALLBACK_PUBLIC_ENABLED' },
-  admin:   { primary: 'AI_MODEL_REASONING',fallback: 'AI_MODEL_FALLBACK_ADMIN',   enabled: 'AI_FALLBACK_ADMIN_ENABLED' },
-  client:  { primary: 'AI_MODEL_CLIENT',   fallback: 'AI_MODEL_FALLBACK_CLIENT',  enabled: 'AI_FALLBACK_CLIENT_ENABLED' },
-  planner: { primary: 'AI_MODEL_PLANNER',  fallback: 'AI_MODEL_FALLBACK_PLANNER', enabled: 'AI_FALLBACK_PLANNER_ENABLED' },
-  advisor: { primary: 'AI_MODEL_ADVISOR',  fallback: 'AI_MODEL_FALLBACK_ADVISOR', enabled: 'AI_FALLBACK_ADVISOR_ENABLED' },
-  idea:    { primary: 'AI_MODEL_IDEA',     fallback: 'AI_MODEL_FALLBACK_IDEA',    enabled: 'AI_FALLBACK_IDEA_ENABLED' },
-};
-const DEFAULTS: Record<Surface, { primary: string; fallback: string }> = {
-  public:  { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash' },
-  admin:   { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash' },
-  client:  { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash' },
-  planner: { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash' },
-  advisor: { primary: 'MiniMaxAI/MiniMax-M2.7',             fallback: 'zai-org/GLM-5.3-Flash' },
-  idea:    { primary: 'deepseek-ai/DeepSeek-V4-Flash-0731', fallback: 'zai-org/GLM-5.3-Flash' },
-};
-const envStr = (env: Env, k: string): string | undefined => (env as unknown as Record<string, string | undefined>)[k];
 
 app.get('/ai/config', async (c) => {
   const env = c.env as Env;
-  const surfaces: Record<string, { primary: string; fallback: string | null; fallbackEnabled: boolean; tier: string }> = {};
-  for (const s of SURFACES) {
-    const keys = SURF_KEYS[s];
-    const primary = normaliseModelId(envStr(env, keys.primary) || DEFAULTS[s].primary);
-    const fallbackEnabled = (envStr(env, keys.enabled) ?? 'true') === 'true';
-    const fallback = fallbackEnabled ? normaliseModelId(envStr(env, keys.fallback) || DEFAULTS[s].fallback) : null;
-    const tier = (s === 'public' || s === 'planner' || s === 'idea') ? 'fast' : 'reasoning';
-    surfaces[s] = { primary, fallback, fallbackEnabled, tier };
-  }
-  // Load staged overrides if present.
-  const db = getDb(env);
-  const staged = await db.select().from(schema.siteSettings).where(eq(schema.siteSettings.key, 'ai_config')).limit(1);
+  const snap = await buildConfigSnapshot(env);
   return c.json({
-    surfaces,
-    staged: staged[0]?.value ?? null,
+    surfaces: snap.surfaces,
+    staged: snap.staged,
     catalog: Object.fromEntries(Object.entries(MODEL_CATALOG).map(([k, v]) => [k, { id: v.id, label: v.label, contextWindow: v.contextWindow, tools: v.tools, emitsThinking: v.emitsThinking }])),
     provider: env.AI_PROVIDER || 'dahl',
     aiConfigured: !!env.AI_API_KEY,
@@ -642,57 +723,79 @@ app.get('/ai/status', async (c) => {
 app.get('/ai/conversations', async (c) => {
   const db = getDb(c.env as Env);
   const url = new URL(c.req.url);
-  const prefix = url.searchParams.get('prefix');
+  const prefix = url.searchParams.get('prefix') || undefined;
   const limit = Math.min(Number(url.searchParams.get('limit')) || 50, 200);
   const w = prefix ? like(schema.assistantSessions.anonId, `${prefix}%`) : undefined;
   const rows = await db.select().from(schema.assistantSessions).where(w).orderBy(desc(schema.assistantSessions.lastMessageAt)).limit(limit);
   return c.json({ items: rows });
 });
-
 app.get('/ai/conversations/:id/messages', async (c) => {
   const db = getDb(c.env as Env);
   const id = c.req.param('id');
   const s = await db.select().from(schema.assistantSessions)
     .where(or(eq(schema.assistantSessions.id, id), eq(schema.assistantSessions.anonId, id))).limit(1);
-  if (!s[0]) return c.json({ error: 'Not found' }, 404);
+  if (!s[0]) throw new ApiError({ code: 'NOT_FOUND', message: 'Conversation not found.' });
   const messages = await db.select().from(schema.assistantMessages)
     .where(eq(schema.assistantMessages.sessionId, s[0].id)).orderBy(asc(schema.assistantMessages.createdAt));
   return c.json({ session: s[0], messages });
 });
-
 app.post('/ai/conversations/:id/rename', async (c) => {
-  const db = getDb(c.env as Env);
-  const { name } = await c.req.json() as { name?: string };
-  await db.update(schema.assistantSessions).set({ name: (name || '').slice(0, 120) }).where(eq(schema.assistantSessions.id, c.req.param('id')));
+  const env = c.env as Env;
+  const db = getDb(env);
+  const id = c.req.param('id');
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  await db.update(schema.assistantSessions).set({ name: String(b.name || '').slice(0, 120) }).where(eq(schema.assistantSessions.id, id));
+  writeAudit(env, { action: 'UPDATE', entity: 'assistant_sessions', entityId: id, auth: auth(c), req: c.req.raw, meta: { rename: true } });
   return c.json({ ok: true });
 });
-
 app.delete('/ai/conversations/:id', async (c) => {
-  const db = getDb(c.env as Env);
+  const env = c.env as Env;
+  const db = getDb(env);
   const id = c.req.param('id');
   await db.delete(schema.assistantMessages).where(eq(schema.assistantMessages.sessionId, id));
   await db.delete(schema.assistantSessions).where(eq(schema.assistantSessions.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'assistant_sessions', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json({ ok: true });
 });
 
 app.post('/ai/config', async (c) => {
-  const db = getDb(c.env as Env);
-  const b = await c.req.json() as { surfaces?: Record<string, { primary?: string; fallback?: string | null; fallbackEnabled?: boolean }> };
-  const out: Record<string, { primary: string; fallback: string | null; fallbackEnabled: boolean }> = {};
+  const env = c.env as Env;
+  const db = getDb(env);
+  let b: any;
+  try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const surfacesInput = b.surfaces || {};
+  const out: Record<string, { primary: string; fallback: string | null; fallbackEnabled: boolean; timeoutMs?: number; maxTokens?: number; toolsEnabled?: string[] }> = {};
   const warnings: string[] = [];
-  for (const [surface, cfg] of Object.entries(b.surfaces || {})) {
+  for (const [surface, cfg] of Object.entries(surfacesInput)) {
     if (!SURFACES.includes(surface as Surface)) { warnings.push(`unknown surface: ${surface}`); continue; }
-    const primary = normaliseModelId(cfg.primary || DEFAULTS[surface as Surface].primary);
+    const cAny = cfg as any || {};
+    const primary = normaliseModelId(cAny.primary || '');
+    if (!primary) { warnings.push(`missing primary for ${surface}`); continue; }
     if (!MODEL_CATALOG[primary]) warnings.push(`model "${primary}" not in known catalog for ${surface}.primary (saved anyway)`);
-    const fallbackEnabled = cfg.fallbackEnabled !== false;
-    const fallback = fallbackEnabled && cfg.fallback ? normaliseModelId(cfg.fallback) : null;
-    if (fallback && !MODEL_CATALOG[fallback]) warnings.push(`model "${fallback}" not in known catalog for ${surface}.fallback (saved anyway)`);
-    out[surface] = { primary, fallback, fallbackEnabled };
+    const fallbackEnabled = cAny.fallbackEnabled !== false;
+    let fallback: string | null = null;
+    if (fallbackEnabled && cAny.fallback) {
+      fallback = normaliseModelId(cAny.fallback);
+      if (fallback && !MODEL_CATALOG[fallback]) warnings.push(`model "${fallback}" not in known catalog for ${surface}.fallback (saved anyway)`);
+      if (fallback === primary) fallback = null;
+    }
+    const entry: any = { primary, fallback, fallbackEnabled };
+    if (typeof cAny.timeoutMs === 'number') entry.timeoutMs = Math.max(5000, Math.min(120000, cAny.timeoutMs));
+    if (typeof cAny.maxTokens === 'number') entry.maxTokens = Math.max(100, Math.min(8000, cAny.maxTokens));
+    if (Array.isArray(cAny.toolsEnabled)) entry.toolsEnabled = cAny.toolsEnabled.filter((t: any) => typeof t === 'string');
+    out[surface] = entry;
   }
   const existing = await db.select().from(schema.siteSettings).where(eq(schema.siteSettings.key, 'ai_config')).limit(1);
   if (existing.length) await db.update(schema.siteSettings).set({ value: out, updatedAt: now() }).where(eq(schema.siteSettings.key, 'ai_config'));
   else await db.insert(schema.siteSettings).values({ key: 'ai_config', value: out, updatedAt: now() });
-  return c.json({ ok: true, warnings, note: 'Config staged in DB. Apply to Worker env (AI_MODEL_* secrets) to make it live; restart required.' });
+  // Immediately invalidate in-memory config cache so subsequent AI requests use the new values.
+  invalidateCache();
+  writeAudit(env, { action: 'AI_CONFIG_UPDATE', entity: 'site_settings', entityId: 'ai_config', auth: auth(c), req: c.req.raw, meta: { surfaces: Object.keys(out) } });
+  return c.json({
+    success: true,
+    data: { ok: true, warnings, active: true, note: 'Configuration is live. Other Worker isolates will pick it up within 30 seconds.' },
+  });
 });
 
 export default app;

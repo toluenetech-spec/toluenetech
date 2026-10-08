@@ -1,32 +1,26 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Loader2 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
-interface Props { onLogin: (pw: string) => boolean; }
-
-export default function Login({ onLogin }: Props) {
+export default function Login() {
   const nav = useNavigate();
+  const { login } = useAuth();
   const [pw, setPw] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     setErr(null);
-    // Synchronously validate. If valid, persist the session (which onLogin
-    // does via useAuth.login -> sessionStorage) then replace the URL to
-    // /admin/dashboard. We navigate AFTER auth state flips and we explicitly
-    // set the hash so there is no intermediate /admin frame that triggers
-    // the shell's catch-all redirect.
-    const ok = onLogin(pw);
+    const ok = await login(pw);
     if (!ok) {
       setErr('Incorrect password. Please try again.');
       setBusy(false);
       return;
     }
-    // Defer one tick so React flushes isAuthenticated=true, then replace URL.
     setTimeout(() => {
       nav('/admin/dashboard', { replace: true });
       setBusy(false);
@@ -48,7 +42,7 @@ export default function Login({ onLogin }: Props) {
           <label className="adm-label" htmlFor="adm-pw">Password</label>
           <input id="adm-pw" className="adm-input" type="password" autoFocus
             value={pw} onChange={e => setPw(e.target.value)} placeholder="Admin password"
-            disabled={busy}/>
+            disabled={busy} autoComplete="current-password"/>
         </div>
         {err && <div style={{ color: '#dc2626', fontSize: '0.82rem', marginTop: '0.5rem' }}>{err}</div>}
         <button className="adm-btn adm-btn-primary" style={{ width: '100%', marginTop: '1rem' }} disabled={busy || !pw}>

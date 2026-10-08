@@ -3,8 +3,10 @@ import { eq, desc } from 'drizzle-orm';
 import { getDb, schema } from '../db';
 import { rateLimit, clientIp } from '../lib/rate-limit';
 import type { Env } from '../env';
+import { ApiError, jsonError } from '../lib/errors';
 
 const app = new Hono<{ Bindings: Env }>();
+app.onError((err, c) => jsonError(c, err));
 
 interface LeadInput {
   name?: unknown;
@@ -40,15 +42,15 @@ app.post('/', async (c) => {
   const env = c.env as Env;
   const ip = clientIp(c.req.raw);
   const rl = rateLimit(`lead:${ip}`, { windowMs: 60_000, max: 5 });
-  if (!rl.ok) return c.json({ error: 'Too many submissions. Try again in a moment.' }, 429);
+  if (!rl.ok) throw new ApiError({ code: 'RATE_LIMITED', message: 'Too many submissions — try again in a moment.' });
 
   let body: LeadInput;
-  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  try { body = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON body.' }); }
 
   const name = sanitizeStr(body.name, 160);
   const email = sanitizeStr(body.email, 240);
-  if (!name) return c.json({ error: 'Name is required.' }, 400);
-  if (!validateEmail(email)) return c.json({ error: 'A valid email is required.' }, 400);
+  if (!name) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Name is required.' });
+  if (!validateEmail(email)) throw new ApiError({ code: 'VALIDATION_ERROR', message: 'A valid email is required.' });
 
   const phone = sanitizeStr(body.phone, 40);
   const company = sanitizeStr(body.company, 180);
@@ -68,7 +70,7 @@ app.post('/', async (c) => {
   const [lead] = await db.insert(schema.leads).values({
     ref,
     name,
-    email: email!,  // validated above
+    email: email!,
     phone: phone ?? undefined,
     company: company ?? undefined,
     requirements: requirements ?? undefined,
@@ -79,7 +81,7 @@ app.post('/', async (c) => {
     status: 'NEW',
   }).returning();
 
-  return c.json({ ok: true, ref: lead.ref }, 201);
+  return c.json({ success: true, data: { ref: lead.ref, id: lead.id } }, 201);
 });
 
 export default app;
