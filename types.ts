@@ -109,24 +109,57 @@ export interface Client {
   id: string; name: string; email: string; phone?: string; company?: string;
   accessCode: string; status: 'active' | 'inactive'; createdAt: any;
 }
-export type ProjectClientStatus = 'active' | 'in-progress' | 'on-hold' | 'completed';
+export type ProjectClientStatus = 'PLANNING' | 'IN_PROGRESS' | 'ACTIVE' | 'ON_HOLD' | 'PAUSED' | 'REVIEW' | 'COMPLETED' | 'CANCELLED' | 'ARCHIVED' | 'active' | 'in-progress' | 'on-hold' | 'completed';
+export type ProjectPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export interface ClientProject {
-  id: string; clientId: string; title: string; description?: string;
-  status: ProjectClientStatus; progress?: number; startDate?: string; dueDate?: string;
+  id: string; clientId: string; title: string; description?: string | null;
+  status: ProjectClientStatus; priority?: ProjectPriority; progress?: number;
+  assignee?: string | null; startDate?: string | null; dueDate?: string | null;
+  totalCents?: number | null; currency?: string;
+  createdAt?: any; updatedAt?: any;
 }
+export type MilestoneStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'APPROVED' | 'REJECTED' | 'pending' | 'in-progress' | 'completed';
 export interface Milestone {
-  id: string; projectId: string; title: string; description?: string;
-  status: 'pending' | 'in-progress' | 'completed'; dueDate?: string; completedDate?: string;
-  notes?: string; order?: number;
+  id: string; projectId: string; title: string; description?: string | null;
+  status: MilestoneStatus; dueDate?: string | null; completedDate?: string;
+  amountCents?: number | null; approvedAt?: string | null; approvedBy?: string | null; rejectionReason?: string | null;
+  notes?: string; order?: number; createdAt?: any; updatedAt?: any;
 }
 export interface ProjectFile {
-  id: string; projectId: string; name: string; url: string; type: string; size?: number;
-  uploadedAt: any; uploadedBy?: 'admin' | 'client';
+  id: string; projectId: string; clientId?: string | null;
+  name?: string; filename?: string; url?: string; r2Key?: string;
+  type?: string; mimeType?: string; size?: number | null; sizeBytes?: number | null;
+  uploadedAt?: any; updatedAt?: any; uploadedBy?: string | null; uploadedByRole?: 'admin' | 'client' | null;
+  visibility?: 'PUBLIC' | 'PRIVATE';
 }
 export interface ProjectMessage {
-  id: string; projectId: string; author: 'admin' | 'client'; authorName: string;
-  text: string; attachmentUrl?: string; createdAt: any;
+  id: string; projectId?: string; contextType?: string; contextId?: string | null; threadId?: string | null;
+  author?: 'admin' | 'client'; isFromClient?: boolean;
+  authorName?: string; fromName?: string;
+  text?: string; body?: string; attachmentUrl?: string;
+  attachments?: { filename: string; r2Key: string; sizeBytes?: number; mimeType?: string }[];
+  toClientId?: string | null; toUid?: string | null;
+  isRead?: boolean; readAt?: string | null;
+  createdAt: any;
   readByClient?: boolean; readByAdmin?: boolean;
+}
+export interface ClientNotification {
+  id: string; type: string; title: string; body?: string | null; link?: string | null;
+  isRead: boolean; createdAt: any;
+}
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'VIEWED' | 'PARTIALLY_PAID' | 'PAID' | 'OVERDUE' | 'CANCELLED' | 'VOID';
+export interface ClientInvoice {
+  id: string; number: string; clientId: string; projectId?: string | null;
+  subtotalCents?: number; taxCents?: number; discountCents?: number;
+  amountCents: number; currency: string;
+  status: InvoiceStatus; notes?: string | null;
+  dueDate?: string | null; issuedAt?: string | null; viewedAt?: string | null;
+  paidAt?: string | null; cancelledAt?: string | null;
+  createdAt: any;
+}
+export interface ClientInvoiceItem {
+  id: string; invoiceId: string; kind: string; description: string;
+  quantity: number; unitPriceCents: number; amountCents: number; order: number;
 }
 
 /* ---------------- Tool ---------------- */

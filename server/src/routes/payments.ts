@@ -44,6 +44,22 @@ app.onError((err, c) => jsonError(c, err));
 const uid = () => crypto.randomUUID();
 const now = () => new Date();
 
+/**
+ * GET /payments/config — return PUBLIC payment configuration for the browser
+ * to initialize Flutterwave inline checkout. The secret key is NEVER sent.
+ * If the public key is not configured, returns `{ configured: false }` so
+ * the UI can disable the pay button instead of fabricating success.
+ */
+app.get('/config', async (c) => {
+  const env = c.env as Env;
+  const publicKey = env.FLW_PUBLIC_KEY;
+  return c.json({
+    configured: !!publicKey,
+    provider: 'flutterwave',
+    publicKey: publicKey || null,
+  });
+});
+
 async function verifyWithFlutterwave(env: Env, transactionId: string): Promise<any> {
   const secret = env.FLW_SECRET_KEY;
   if (!secret) throw new ApiError({ code: 'SERVICE_UNAVAILABLE', message: 'Payment provider not configured.' });

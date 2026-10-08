@@ -37,11 +37,11 @@ const Labs: React.FC = () => {
           {published.map(l => (
             <StaggerItem key={l.id}>
               <div className="tt-glass tt-glow-border h-full overflow-hidden rounded-2xl">
-                {l.imageUrl && <img src={l.imageUrl} alt={l.title} className="h-40 w-full object-cover" />}
+                {((l as any).imageUrl || (l as any).screenshots?.[0]) && <img src={(l as any).imageUrl || (l as any).screenshots[0]} alt={l.title} className="h-40 w-full object-cover" />}
                 <div className="p-6">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand-500">{l.category}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_STYLES[l.status]}`}>{l.status}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand-500">{l.category || 'experiment'}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${STATUS_STYLES[(l as any).status || 'experiment'] || STATUS_STYLES.experiment}`}>{(l as any).status || 'experiment'}</span>
                   </div>
                   <h3 className="mt-3 font-display text-lg font-bold text-slate-900 dark:text-white">{l.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-400">{l.description}</p>

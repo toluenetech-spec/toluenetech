@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { DataProvider } from './context/DataContext';
 import { AuthProvider } from './context/AuthContext';
 import { ClientAuthProvider } from './context/ClientAuthContext';
+import { ClientDataProvider } from './context/ClientDataContext';
 import { ThemeProvider } from './context/ThemeContext';
 import Layout from './components/Layout';
 import Home from './pages/Home';
@@ -35,10 +36,10 @@ import PageLoader from './components/PageLoader';
 import ToleshWidget from './components/ToleshWidget';
 
 const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <>
+  <ClientDataProvider>
     {children}
     <ToleshWidget mode="client" />
-  </>
+  </ClientDataProvider>
 );
 
 const PageTransition: React.FC<{ children: React.ReactNode }> = ({ children }) => (

@@ -11,9 +11,11 @@ const PortalLogin: React.FC = () => {
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (login(email, code)) navigate('/portal/dashboard');
+    setErr('');
+    const ok = await login(email, code);
+    if (ok) navigate('/portal/dashboard');
     else setErr('Invalid email or access code. Clients receive access codes from Toluene Tech on project kickoff.');
   };
 

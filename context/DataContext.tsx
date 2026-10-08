@@ -294,6 +294,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSolutions((cms.solutions.length ? cms.solutions : DEFAULT_SOLUTIONS) as any);
         setProjects(cms.projects as any);
         setProducts(cms.products as any);
+        setLabs((cms.labs && cms.labs.length ? cms.labs : DEFAULT_LABS) as any);
         setTestimonials(cms.testimonials as any);
         setFaqs((cms.faqs.length ? cms.faqs : DEFAULT_FAQS) as any);
         setInsights(cms.insights as any);

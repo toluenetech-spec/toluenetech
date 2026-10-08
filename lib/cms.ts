@@ -82,6 +82,11 @@ export interface InsightRecord {
   content?: string; author?: string | null; category?: string | null; tags?: string[];
   publishDate?: string | null; isFeatured: boolean; isPublished?: boolean;
 }
+export interface LabRecord {
+  id: string; slug: string; title: string; description?: string | null; category?: string;
+  tech?: string[]; demoUrl?: string | null; status?: string; screenshots?: string[];
+  publishedAt?: string | null; isPublished: boolean; createdAt?: string; updatedAt?: string;
+}
 export interface Paginated<T> { items: T[]; total: number; page: number; limit: number; totalPages: number; }
 
 export const getServices = () => cmsGet<{ items: ServiceRecord[] }>('/services');
@@ -115,6 +120,8 @@ export const getInsights = (params?: { page?: number; limit?: number; category?:
   return cmsGet<Paginated<InsightRecord>>(`/insights${qs ? `?${qs}` : ''}`);
 };
 export const getInsight = (slug: string) => cmsGet<{ item: InsightRecord }>(`/insights/${encodeURIComponent(slug)}`);
+export const getLabs = (category?: string) => cmsGet<{ items: LabRecord[] }>(`/labs${category ? `?category=${encodeURIComponent(category)}` : ''}`);
+export const getLab = (slug: string) => cmsGet<{ item: LabRecord }>(`/labs/${encodeURIComponent(slug)}`);
 
 export interface PublicSiteSettings {
   company?: { name?: string; email?: string; phone?: string; whatsapp?: string; address?: string; tagline?: string };
@@ -131,18 +138,19 @@ export const getSiteSettings = () => cmsGet<{ settings: PublicSiteSettings }>('/
 
 export async function loadCMSData(): Promise<{
   services: ServiceRecord[]; solutions: SolutionRecord[]; projects: ProjectRecord[];
-  products: ProductRecord[]; tools: ToolRecord[]; faqs: FAQRecord[];
+  products: ProductRecord[]; labs: LabRecord[]; tools: ToolRecord[]; faqs: FAQRecord[];
   testimonials: TestimonialRecord[]; pricing: PricingPlanRecord[]; insights: InsightRecord[];
   site: PublicSiteSettings;
 }> {
-  const [svc, sol, prj, prod, faq, tst, prc, ins, site] = await Promise.all([
+  const [svc, sol, prj, prod, labs, faq, tst, prc, ins, tools, site] = await Promise.all([
     getServices(), getSolutions(), getProjects({ limit: 50 }), getProducts(),
+    getLabs(),
     getFAQs(), getTestimonials(), getPricing(),
-    getInsights({ limit: 50 }), getSiteSettings(),
+    getInsights({ limit: 50 }), getTools(), getSiteSettings(),
   ]);
   return {
     services: svc.items, solutions: sol.items, projects: prj.items,
-    products: prod.items, tools: [] as ToolRecord[], faqs: faq.items,
+    products: prod.items, labs: labs.items, tools: tools.items, faqs: faq.items,
     testimonials: tst.items, pricing: prc.items, insights: ins.items,
     site: site.settings,
   };
