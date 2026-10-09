@@ -687,6 +687,18 @@ app.delete('/client-projects/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// Single project detail (includes client snapshot for admin)
+app.get('/client-projects/:id', async (c) => {
+  const db = getDb(c.env as Env);
+  const id = c.req.param('id');
+  const [p] = await db.select().from(schema.clientProjects).where(eq(schema.clientProjects.id, id)).limit(1);
+  if (!p) throw new ApiError({ code: 'NOT_FOUND', message: 'Project not found.' });
+  const [cl] = p.clientId
+    ? await db.select().from(schema.clients).where(eq(schema.clients.id, p.clientId)).limit(1)
+    : [null as any];
+  return c.json({ item: p, client: cl || null });
+});
+
 // ---------- Milestones ----------
 app.get('/milestones', async (c) => {
   const db = getDb(c.env as Env);
@@ -808,6 +820,17 @@ genCrud({
     isPublished: !!b.isPublished,
     publishedAt: b.publishedAt || (b.isPublished ? now() : null),
   }),
+});
+
+// ---------- Project files (admin list) ----------
+app.get('/projects/:id/files', async (c) => {
+  const db = getDb(c.env as Env);
+  const pid = c.req.param('id');
+  await getOr404(db, schema.clientProjects, pid, 'Project not found.');
+  const items = await db.select().from(schema.projectFiles)
+    .where(eq(schema.projectFiles.projectId, pid))
+    .orderBy(desc(schema.projectFiles.createdAt));
+  return c.json({ items, total: items.length });
 });
 
 // ---------- Project files (admin upload) ----------
@@ -985,6 +1008,85 @@ app.put('/invoices/:id/send', async (c) => {
   });
   writeAudit(env, { action: 'INVOICE_SEND', entity: 'invoices', entityId: id, auth: auth(c), req: c.req.raw });
   return c.json(u);
+});
+app.put('/invoices/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const id = c.req.param('id');
+  const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id)).limit(1);
+  if (!inv) throw new ApiError({ code: 'NOT_FOUND', message: 'Invoice not found.' });
+  if (['PAID','CANCELLED','VOID'].includes(inv.status)) {
+    throw new ApiError({ code: 'CONFLICT', message: `Cannot edit a ${inv.status} invoice.` });
+  }
+  let b: any; try { b = await c.req.json(); } catch { throw new ApiError({ code: 'BAD_REQUEST', message: 'Invalid JSON.' }); }
+  const patch: any = {};
+  if (b.notes !== undefined) patch.notes = typeof b.notes === 'string' ? b.notes.slice(0, 2000) : null;
+  if (b.dueDate !== undefined) patch.dueDate = b.dueDate || null;
+  if (b.status) {
+    const s = String(b.status).toUpperCase();
+    if (!['DRAFT','SENT','VIEWED','PARTIALLY_PAID','PAID','OVERDUE','CANCELLED','VOID'].includes(s))
+      throw new ApiError({ code: 'VALIDATION_ERROR', message: 'Invalid status.' });
+    patch.status = s;
+  }
+  if (b.currency) patch.currency = String(b.currency).slice(0,3);
+  // Recompute line items if provided
+  if (Array.isArray(b.items)) {
+    const subtotal = b.items.reduce((sum: number, li: any) => sum + (Number(li.amountCents) || 0), 0);
+    const tax = Number.isInteger(b.taxCents) ? b.taxCents : (inv.taxCents || 0);
+    const disc = Number.isInteger(b.discountCents) ? b.discountCents : (inv.discountCents || 0);
+    patch.subtotalCents = subtotal;
+    patch.taxCents = tax;
+    patch.discountCents = disc;
+    patch.amountCents = b.amountCents ?? Math.max(0, subtotal + tax - disc);
+    if (Number.isInteger(b.taxCents)) patch.taxCents = b.taxCents;
+    if (Number.isInteger(b.discountCents)) patch.discountCents = b.discountCents;
+    // Replace line items in a tx-like sequence (delete then insert)
+    await db.delete(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, id));
+    for (let i = 0; i < b.items.length; i++) {
+      const li = b.items[i];
+      await db.insert(schema.invoiceItems).values({
+        id: uid(), invoiceId: id,
+        kind: String(li.kind || 'CUSTOM').toUpperCase() as any,
+        description: String(li.description || '').slice(0, 500) || 'Item',
+        quantity: Number(li.quantity) || 1,
+        unitPriceCents: Number(li.unitPriceCents) || 0,
+        amountCents: Number(li.amountCents) || 0,
+        order: i,
+      });
+    }
+  } else {
+    if (Number.isInteger(b.taxCents)) patch.taxCents = b.taxCents;
+    if (Number.isInteger(b.discountCents)) patch.discountCents = b.discountCents;
+  }
+  patch.updatedAt = now();
+  const [u] = await db.update(schema.invoices).set(patch).where(eq(schema.invoices.id, id)).returning();
+  writeAudit(env, { action: 'UPDATE', entity: 'invoices', entityId: id, auth: auth(c), req: c.req.raw, meta: { changed: Object.keys(patch) } });
+  return c.json(u);
+});
+app.delete('/invoices/:id', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const id = c.req.param('id');
+  const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, id)).limit(1);
+  if (!inv) throw new ApiError({ code: 'NOT_FOUND', message: 'Invoice not found.' });
+  if (inv.status === 'PAID') throw new ApiError({ code: 'CONFLICT', message: 'Cannot delete a paid invoice. Void it instead.' });
+  await db.delete(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, id));
+  await db.delete(schema.invoices).where(eq(schema.invoices.id, id));
+  writeAudit(env, { action: 'DELETE', entity: 'invoices', entityId: id, auth: auth(c), req: c.req.raw });
+  return c.json({ ok: true });
+});
+
+// Mark client messages as read (admin-side)
+app.post('/projects/:id/messages/read', async (c) => {
+  const env = c.env as Env; const db = getDb(env);
+  const pid = c.req.param('id');
+  await getOr404(db, schema.clientProjects, pid, 'Project not found.');
+  await db.update(schema.messages)
+    .set({ isRead: true, readAt: now() } as any)
+    .where(and(
+      eq(schema.messages.contextType, 'PROJECT'),
+      eq(schema.messages.contextId, pid),
+      eq(schema.messages.isFromClient, true),
+    ));
+  return c.json({ ok: true });
 });
 
 // ---------- Site settings ----------

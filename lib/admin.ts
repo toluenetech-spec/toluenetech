@@ -13,6 +13,7 @@
  * production, Vite proxy (`''`) in dev.
  */
 import { apiBase } from './api';
+import { parseResponse } from './http';
 import type { ChatMessage } from '../server/src/ai/types';
 
 export type Json = Record<string, unknown>;
@@ -86,24 +87,19 @@ async function http<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
   if (legacy && !token) headers['X-TT-Admin-Password'] = legacy;
-  const res = await fetch(url, { ...opts, headers });
-  if (res.status === 401) {
+  // Bridge the shared parseResponse 401 event into the legacy admin event so
+  // AuthContext can clear session and redirect to login.
+  const onExpired = () => {
     clearAdminSession();
     window?.dispatchEvent?.(new CustomEvent('tt:admin-unauthorized'));
-    throw new Error('Session expired. Please sign in again.');
+  };
+  window.addEventListener('tt:auth-expired', onExpired, { once: true });
+  try {
+    const res = await fetch(url, { ...opts, headers });
+    return await parseResponse<T>(res);
+  } finally {
+    window.removeEventListener('tt:auth-expired', onExpired);
   }
-  const ct = res.headers.get('content-type') || '';
-  if (!ct.toLowerCase().includes('application/json')) {
-    const snippet = (await res.text().catch(() => '')).slice(0, 200);
-    throw new Error(`Unexpected non-JSON response from ${path} (${res.status} ${res.statusText}${snippet ? ': ' + snippet.replace(/\s+/g, ' ') : ''})`);
-  }
-  let data: any = null;
-  try { data = await res.json(); } catch (e) {
-    throw new Error(`Invalid JSON response from ${path}: ${(e as Error).message}`);
-  }
-  if (!res.ok) throw new Error(data?.error?.message || data?.error || `HTTP ${res.status}`);
-  // Support both new {success,data} envelope and legacy plain responses.
-  return (data && typeof data === 'object' && 'success' in data ? data.data : data) as T;
 }
 
 export const api = {
@@ -146,7 +142,62 @@ export const api = {
 
   // Client projects
   clientProjects: (clientId?: string) => http(`/admin/client-projects${clientId ? `?clientId=${clientId}` : ''}`),
+  clientProject: (id: string) => http(`/admin/client-projects/${id}`),
   milestones: (projectId?: string) => http(`/admin/milestones${projectId ? `?projectId=${projectId}` : ''}`),
+  tasks: (filters?: { projectId?: string; milestoneId?: string }) => {
+    const q = new URLSearchParams();
+    if (filters?.projectId) q.set('projectId', filters.projectId);
+    if (filters?.milestoneId) q.set('milestoneId', filters.milestoneId);
+    const qs = q.toString();
+    return http(`/admin/tasks${qs ? '?' + qs : ''}`);
+  },
+  projectFiles: (projectId: string) => http(`/admin/projects/${projectId}/files`),
+  uploadProjectFile: async (projectId: string, file: File, onProgress?: (pct: number) => void) => {
+    const token = getToken();
+    const legacy = getLegacyPassword();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (legacy && !token) headers['X-TT-Admin-Password'] = legacy;
+    return new Promise<any>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const url = `${BASE()}/admin/projects/${encodeURIComponent(projectId)}/files?filename=${encodeURIComponent(file.name)}`;
+      xhr.open('POST', url);
+      Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); }
+          catch { reject(new Error('Invalid server response.')); }
+        } else {
+          let msg = `Upload failed (${xhr.status})`;
+          try { const j = JSON.parse(xhr.responseText); msg = j?.error?.message || j?.error || msg; } catch { /* ignore */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload.'));
+      xhr.send(file);
+    });
+  },
+  deleteProjectFile: (projectId: string, fileId: string) => http(`/admin/projects/${projectId}/files/${fileId}`, { method: 'DELETE' }),
+  projectMessages: (projectId: string) => http(`/admin/projects/${projectId}/messages`),
+  sendProjectMessage: (projectId: string, body: string, threadId?: string) =>
+    http(`/admin/projects/${projectId}/messages`, { method: 'POST', body: JSON.stringify({ body, threadId }) }),
+  markProjectMessagesRead: (projectId: string) => http(`/admin/projects/${projectId}/messages/read`, { method: 'POST' }),
+  milestoneApprovals: (milestoneId: string) => http(`/admin/milestones/${milestoneId}/approvals`),
+  invoices: (filters?: { clientId?: string; projectId?: string; status?: string }) => {
+    const q = new URLSearchParams();
+    if (filters?.clientId) q.set('clientId', filters.clientId);
+    if (filters?.projectId) q.set('projectId', filters.projectId);
+    if (filters?.status) q.set('status', filters.status);
+    const qs = q.toString();
+    return http(`/admin/invoices${qs ? '?' + qs : ''}`);
+  },
+  invoice: (id: string) => http(`/admin/invoices/${id}`),
+  createInvoice: (body: any) => http('/admin/invoices', { method: 'POST', body: JSON.stringify(body) }),
+  updateInvoice: (id: string, body: any) => http(`/admin/invoices/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  sendInvoice: (id: string) => http(`/admin/invoices/${id}/send`, { method: 'PUT' }),
+  deleteInvoice: (id: string) => http(`/admin/invoices/${id}`, { method: 'DELETE' }),
 
   // Media
   media: () => http('/admin/media'),

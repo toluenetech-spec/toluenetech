@@ -27,6 +27,9 @@ import AIChatSection from './sections/AIChat';
 import AIModelControl from './sections/AIModelControl';
 import AIHealth from './sections/AIHealth';
 import AIConversations from './sections/AIConversations';
+import MessagesSection from './sections/Messages';
+import FilesSection from './sections/Files';
+import InvoicesSection from './sections/Invoices';
 import SettingsGeneral from './sections/settings/General';
 import SettingsSocial from './sections/settings/Social';
 import SettingsAvailability from './sections/settings/Availability';
@@ -117,9 +120,9 @@ function Shell({ onLogout }: { onLogout: () => void }) {
                 <Route path="leads/:id" element={<PageWrap><LeadsSection/></PageWrap>}/>
                 <Route path="clients" element={<PageWrap><ClientsSection/></PageWrap>}/>
                 <Route path="jobs" element={<PageWrap><JobsSection/></PageWrap>}/>
-                <Route path="messages" element={<PageWrap><ComingSoon title="Messages" subtitle="Project messaging and inbox will be managed here when the client portal rollout is complete." icon="MessageSquare"/></PageWrap>}/>
-                <Route path="files" element={<PageWrap><MediaSection tab="files"/></PageWrap>}/>
-                <Route path="invoices" element={<PageWrap><ComingSoon title="Invoices" subtitle="Invoice management will be available once payment integrations are live." icon="Receipt"/></PageWrap>}/>
+                <Route path="messages" element={<PageWrap><MessagesSection/></PageWrap>}/>
+                <Route path="files" element={<PageWrap><FilesSection/></PageWrap>}/>
+                <Route path="invoices" element={<PageWrap><InvoicesSection/></PageWrap>}/>
                 <Route path="services" element={<PageWrap><ServicesSection/></PageWrap>}/>
                 <Route path="solutions" element={<PageWrap><SolutionsSection/></PageWrap>}/>
                 <Route path="portfolio" element={<PageWrap><PortfolioSection/></PageWrap>}/>

@@ -165,44 +165,123 @@ app.post('/verify', async (c) => {
 });
 
 /**
- * Flutterwave webhook. Verifies signature via Verif-Hash header.
- * Returns 200 OK immediately so we don't get retried.
+ * Flutterwave webhook.
+ *
+ * Security:
+ *   - Verifies signature via `verif-hash` header against FLW_SECRET_HASH (the
+ *     secret hash you configure in the Flutterwave dashboard). If the hash is
+ *     missing or mismatched, returns 401.
+ *   - Never trusts the webhook payload's amount/status. For 'successful' events
+ *     we re-verify by calling Flutterwave's /transactions/:id/verify endpoint
+ *     (same path used by the client-side verify endpoint) before recording.
+ *   - Idempotent on tx_ref; duplicate deliveries return 200 without side effects.
+ *   - Never logs secrets or full card details.
+ *
+ * Returns 200 quickly so Flutterwave doesn't keep retrying.
  */
 app.post('/webhook', async (c) => {
   const env = c.env as Env;
   const secretHash = env.FLW_SECRET_HASH;
   const verifHash = c.req.header('verif-hash');
-  if (!secretHash || !verifHash || verifHash !== secretHash) {
+  if (!secretHash || !verifHash) {
     return c.json({ status: 'ignored' }, 401);
   }
+  // Timing-safe comparison
+  const a = verifHash; const b = secretHash;
+  if (a.length !== b.length || !crypto.subtle?.timingSafeEqual) {
+    if (a !== b) return c.json({ status: 'ignored' }, 401);
+  } else {
+    try {
+      const eq = await crypto.subtle.timingSafeEqual(
+        new TextEncoder().encode(a), new TextEncoder().encode(b),
+      );
+      if (!eq) return c.json({ status: 'ignored' }, 401);
+    } catch { if (a !== b) return c.json({ status: 'ignored' }, 401); }
+  }
+
   let payload: any; try { payload = await c.req.json(); } catch { return c.json({ status: 'ok' }); }
   const tx = payload?.data;
-  if (!tx || !tx.tx_ref) return c.json({ status: 'ok' });
+  if (!tx || !tx.id || !tx.tx_ref) return c.json({ status: 'ok' });
+
   const db = getDb(env);
-  // Idempotency: if we already recorded this tx_ref, skip.
-  const [existing] = await db.select().from(schema.payments).where(eq(schema.payments.providerRef, String(tx.tx_ref))).limit(1);
+  // Idempotency key = transaction id (more stable than tx_ref across retries).
+  const txId = String(tx.id);
+  const txRef = String(tx.tx_ref);
+  const [existing] = await db.select().from(schema.payments)
+    .where(eq(schema.payments.providerTransactionId, txId)).limit(1);
   if (existing) return c.json({ status: 'ok', duplicate: true });
-  // Find the invoice from meta or by amount+client? Webhook payload carries tx_ref
-  // which we form as `inv-${invoiceId}-${clientId}` when creating checkout links
-  // (admin flow sets this). If we can't parse, still record but leave invoice_id null.
-  const m = String(tx.tx_ref).match(/^inv-([0-9a-f-]{36})-([0-9a-f-]{36})$/i);
-  const invoiceId = m ? m[1] : null;
-  const clientId = m ? m[2] : (tx.customer?.id ? String(tx.customer.id) : null);
-  const amountCents = Math.round(Number(tx.amount || 0) * 100);
+  const [existingByRef] = await db.select().from(schema.payments)
+    .where(eq(schema.payments.providerRef, txRef)).limit(1);
+  if (existingByRef) return c.json({ status: 'ok', duplicate: true });
+
+  // Re-verify with Flutterwave before trusting the webhook payload.
+  let verified: any = null;
+  try { verified = await verifyWithFlutterwave(env, txId); }
+  catch (e) {
+    // If we can't verify, do not mark PAID — record as PENDING so manual review can reconcile.
+    console.log(JSON.stringify({ ts: new Date().toISOString(), event: 'webhook_verify_fail', txRef, cause: String((e as Error).message).slice(0, 200) }));
+  }
+
+  // Parse invoice & client out of the tx_ref. Supports both formats:
+  //   tt_<invoiceId>_<timestamp>          — portal client checkout
+  //   inv_<invoiceId>_<clientId>          — future admin-created links
+  // Fallback: look up by tx_ref in the idempotency key of existing payment rows (none here yet).
+  let invoiceId: string | null = null;
+  let clientId: string | null = null;
+  const m1 = txRef.match(/^tt_([0-9a-f-]{36})_\d+$/i);
+  const m2 = txRef.match(/^inv_([0-9a-f-]{36})_([0-9a-f-]{36})$/i);
+  if (m1) invoiceId = m1[1];
+  else if (m2) { invoiceId = m2[1]; clientId = m2[2]; }
+
+  // If verification succeeded, use its authoritative data; otherwise trust
+  // minimum safe fields from the payload but mark PENDING.
+  const status = verified && String(verified.status).toLowerCase() === 'successful' ? 'SUCCESSFUL'
+    : tx.status === 'successful' ? 'PENDING' : 'FAILED';
+  const amountCents = Math.round(Number(verified?.charged_amount ?? tx.amount ?? 0) * 100);
+  const currency = String(verified?.currency ?? tx.currency ?? 'USD').toUpperCase().slice(0, 3);
+
+  // If we have an invoiceId and it doesn't match an existing invoice, null it.
+  if (invoiceId) {
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).limit(1);
+    if (!inv) invoiceId = null;
+    else {
+      clientId = inv.clientId;
+      // Safety: never settle an invoice for a mismatched amount or currency.
+      if (status === 'SUCCESSFUL' && (inv.amountCents !== amountCents || inv.currency !== currency)) {
+        console.log(JSON.stringify({ ts: new Date().toISOString(), event: 'webhook_amount_mismatch', invoiceId, expected: inv.amountCents, got: amountCents, currency: inv.currency, gotCurrency: currency }));
+      }
+    }
+  }
+
   await db.insert(schema.payments).values({
     id: uid(),
-    invoiceId, clientId: clientId || 'unknown',
-    provider: 'flutterwave', providerRef: String(tx.tx_ref), providerTransactionId: String(tx.id || ''),
-    amountCents, currency: String(tx.currency || 'USD').toUpperCase().slice(0, 3),
-    status: tx.status === 'successful' ? 'SUCCESSFUL' : 'FAILED',
-    verifiedAt: tx.status === 'successful' ? now() : null,
-    failureReason: tx.status !== 'successful' ? String(tx.status || 'failed') : null,
-    verificationMeta: tx, idempotencyKey: String(tx.tx_ref),
+    invoiceId,
+    clientId: clientId || 'unknown',
+    provider: 'flutterwave',
+    providerRef: txRef,
+    providerTransactionId: txId,
+    amountCents,
+    currency,
+    status,
+    verifiedAt: status === 'SUCCESSFUL' ? now() : null,
+    failureReason: status === 'FAILED' ? String(tx.status || 'failed') : null,
+    verificationMeta: { event: payload.event, status: tx.status },
+    idempotencyKey: txId,
   });
-  if (invoiceId && tx.status === 'successful') {
-    await db.update(schema.invoices).set({ status: 'PAID' as any, paidAt: now() }).where(eq(schema.invoices.id, invoiceId));
+
+  if (invoiceId && status === 'SUCCESSFUL') {
+    const [inv] = await db.select().from(schema.invoices).where(eq(schema.invoices.id, invoiceId)).limit(1);
+    if (inv && inv.amountCents === amountCents && inv.currency === currency && !['PAID','CANCELLED','VOID'].includes(inv.status)) {
+      await db.update(schema.invoices).set({ status: 'PAID' as any, paidAt: now() }).where(eq(schema.invoices.id, invoiceId));
+      await db.insert(schema.notifications).values({
+        id: uid(), clientId: inv.clientId, type: 'payment_received',
+        title: 'Payment received',
+        body: `Your payment of ${(amountCents/100).toFixed(2)} ${currency} for invoice ${inv.number} was successful.`,
+        link: `/portal/invoices/${invoiceId}`,
+      });
+    }
   }
-  writeAudit(env, { action: 'PAYMENT_VERIFY', entity: 'payments', auth: null, req: c.req.raw, meta: { webhook: true, status: tx.status, txRef: tx.tx_ref } });
+  writeAudit(env, { action: 'PAYMENT_VERIFY', entity: 'payments', auth: null, req: c.req.raw, meta: { webhook: true, status, txRef, txId } });
   return c.json({ status: 'ok' });
 });
 

@@ -48,6 +48,11 @@ export const ClientAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
     } catch { /* ignore */ }
+    // Global 401 listener: any fetch that gets a 401 fires tt:auth-expired;
+    // logout the client session and redirect to portal login.
+    const onExpired = () => { logout(); };
+    window.addEventListener('tt:auth-expired', onExpired);
+    return () => window.removeEventListener('tt:auth-expired', onExpired);
   }, []);
 
   const login = async (email: string, code: string): Promise<boolean> => {

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { FolderKanban, Plus, CheckCircle2, Pencil, Trash2 } from 'lucide-react';
+import { FolderKanban, Plus, Pencil, Trash2, ExternalLink } from 'lucide-react';
 import { api } from '../../../lib/admin';
 import DataTable from '../DataTable';
 import { Button, Drawer, useConfirm, useToast } from '../UI';
+import ProjectWorkspace from './ProjectWorkspace';
 
-const JOB_STATUSES = ['ACTIVE','PAUSED','COMPLETED','ARCHIVED'];
+const JOB_STATUSES = ['PLANNING','IN_PROGRESS','ACTIVE','PAUSED','ON_HOLD','REVIEW','COMPLETED','CANCELLED','ARCHIVED'];
 
 export default function JobsSection() {
   const toast = useToast();
@@ -15,8 +16,9 @@ export default function JobsSection() {
   const [form, setForm] = useState<any>({});
   const [saving, setSaving] = useState(false);
   const [clients, setClients] = useState<any[]>([]);
+  const [openId, setOpenId] = useState<string | null>(null);
 
-  const load = () => Promise.all([api.list('client-projects'), api.list('clients')])
+  const load = () => Promise.all([api.clientProjects(), api.list('clients')])
     .then(([jp, cl]) => { setItems(jp.items); setClients(cl.items); })
     .catch(e => toast.push('error','Failed to load',''+e.message));
   useEffect(() => { load(); }, []);
@@ -32,6 +34,7 @@ export default function JobsSection() {
       const data = { ...form, progress: Number(form.progress) || 0 };
       if (isNew) {
         const c = await api.create('client-projects', data); setItems(prev => [c, ...(prev||[])]); toast.push('success','Job created');
+        setOpenId(c.id);
       } else {
         const u = await api.update('client-projects', editing.id, data); setItems(prev => (prev||[]).map(x => x.id === editing.id ? u : x)); toast.push('success','Saved');
       }
@@ -47,8 +50,12 @@ export default function JobsSection() {
   };
   const clientName = (id: string) => clients.find(c => c.id === id)?.name || '—';
 
+  if (openId && items) {
+    return <ProjectWorkspace projectId={openId} projects={items} onProjectChange={setOpenId} initialTab="overview" />;
+  }
+
   return (<>
-    <DataTable title="Projects / Jobs" description="Active client engagements." items={items}
+    <DataTable title="Projects / Jobs" description="Active client engagements. Click a project to manage milestones, tasks, files, and messages." items={items}
       addLabel="New job" onAdd={openNew} onEdit={openEdit} onDelete={remove}
       emptyTitle="No jobs yet" emptyBody="Add the first client project." emptyIcon={FolderKanban}
       columns={[
@@ -58,7 +65,7 @@ export default function JobsSection() {
             <div className="adm-table-sub">{clientName(r.clientId)}</div>
           </div>
         )},
-        { key:'status', label:'Status', render:(r:any)=><span className={`adm-badge ${(r.status||'').toLowerCase()}`}>{(r.status||'').replace('_',' ')}</span> },
+        { key:'status', label:'Status', render:(r:any)=><span className={`adm-badge status-${(r.status||'').toLowerCase()}`}>{(r.status||'').replace('_',' ')}</span> },
         { key:'progress', label:'Progress', render:(r:any)=>(
           <div style={{ minWidth:120 }}>
             <div style={{ height:6, background:'var(--line)', borderRadius:99, overflow:'hidden' }}>
@@ -68,12 +75,13 @@ export default function JobsSection() {
           </div>
         )},
         { key:'due', label:'Due', render:(r:any)=><span className="adm-muted" style={{fontSize:'0.8rem'}}>{r.dueDate ? new Date(r.dueDate).toLocaleDateString() : '—'}</span> },
+        { key:'_open', label:'', render:(r:any)=>(
+          <button className="adm-btn adm-btn-ghost adm-btn-sm" onClick={() => setOpenId(r.id)}><ExternalLink size={13}/>Open</button>
+        )},
       ]}/>
     <Drawer open={!!editing} onClose={close} title={isNew ? 'New job' : form.title}
-      footer={<>
-        <Button variant="ghost" onClick={close}>Cancel</Button>
-        <Button variant="primary" onClick={save} disabled={saving || !form.title || !form.clientId}>{saving?'Saving…':'Save'}</Button>
-      </>}>
+      footer={<><Button variant="ghost" onClick={close}>Cancel</Button>
+        <Button variant="primary" onClick={save} disabled={saving || !form.title || !form.clientId}>{saving?'Saving…':'Save'}</Button></>}>
       <div className="adm-grid-2">
         <div className="adm-field" style={{ gridColumn:'1 / -1' }}><label className="adm-label">Title *</label><input className="adm-input" value={form.title||''} onChange={e=>set('title',e.target.value)}/></div>
         <div className="adm-field"><label className="adm-label">Client *</label>

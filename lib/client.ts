@@ -5,29 +5,12 @@
  * business data — Neon+Worker is the source of truth.
  */
 import { apiBase } from './api';
+import { parseResponse } from './http';
 
 export interface ApiEnvelope<T> { success: boolean; data?: T; error?: { code: string; message: string } }
 
 async function parse<T>(res: Response): Promise<T> {
-  let body: any = null;
-  try { body = await res.json(); } catch { /* empty */ }
-  if (!res.ok) {
-    const msg = body?.error?.message || body?.error || `Request failed (${res.status})`;
-    const err = new Error(msg) as Error & { status: number; code?: string };
-    err.status = res.status;
-    err.code = body?.error?.code;
-    throw err;
-  }
-  if (body && typeof body === 'object' && 'success' in body) {
-    if (!body.success) {
-      const err = new Error(body?.error?.message || 'Request failed') as Error & { status: number; code?: string };
-      err.status = res.status;
-      err.code = body?.error?.code;
-      throw err;
-    }
-    return body.data as T;
-  }
-  return body as T;
+  return parseResponse<T>(res);
 }
 
 function headers(token: string | null, extra: Record<string, string> = {}): Record<string, string> {

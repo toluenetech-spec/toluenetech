@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, lazy, useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { DataProvider } from './context/DataContext';
@@ -21,7 +21,6 @@ import Testimonials from './pages/Testimonials';
 import FAQ from './pages/FAQ';
 import Products from './pages/Products';
 import Labs from './pages/Labs';
-import AILab from './pages/AILab';
 import Insights from './pages/Insights';
 import InsightDetail from './pages/InsightDetail';
 import Downloads from './pages/Downloads';
@@ -29,11 +28,20 @@ import Contact from './pages/Contact';
 import StartProject from './pages/StartProject';
 import Estimate from './pages/Estimate';
 import NotFound from './pages/NotFound';
-import Admin from './pages/Admin';
-import PortalLogin from './pages/portal/Login';
-import Portal from './pages/portal/Portal';
 import PageLoader from './components/PageLoader';
 import ToleshWidget from './components/ToleshWidget';
+
+// Code-split heavy surfaces: Admin, Portal, and AI Lab pull large deps
+// (recharts, markdown renderers, lucide icon sets) that aren't needed for the
+// public marketing site.
+const Admin = lazy(() => import('./pages/Admin'));
+const AILab = lazy(() => import('./pages/AILab'));
+const PortalLogin = lazy(() => import('./pages/portal/Login').then(m => ({ default: m.default })));
+const Portal = lazy(() => import('./pages/portal/Portal').then(m => ({ default: m.default })));
+
+function Chunk({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<div style={{ minHeight: 320, display: 'grid', placeItems: 'center' }}><PageLoader/></div>}>{children}</Suspense>;
+}
 
 const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <ClientDataProvider>
@@ -91,7 +99,7 @@ const SiteRoutes: React.FC = () => {
           <Route path="/project/:id" element={<Layout><PageTransition><ProjectDetail /></PageTransition></Layout>} />
           <Route path="/products" element={<Layout><PageTransition><Products /></PageTransition></Layout>} />
           <Route path="/labs" element={<Layout><PageTransition><Labs /></PageTransition></Layout>} />
-          <Route path="/ai-lab" element={<Layout><PageTransition><AILab /></PageTransition></Layout>} />
+          <Route path="/ai-lab" element={<Layout><PageTransition><Chunk><AILab /></Chunk></PageTransition></Layout>} />
           <Route path="/testimonials" element={<Layout><PageTransition><Testimonials /></PageTransition></Layout>} />
           <Route path="/pricing" element={<Layout><PageTransition><Pricing /></PageTransition></Layout>} />
           <Route path="/faq" element={<Layout><PageTransition><FAQ /></PageTransition></Layout>} />
@@ -103,11 +111,11 @@ const SiteRoutes: React.FC = () => {
           <Route path="/contact" element={<Layout><PageTransition><Contact /></PageTransition></Layout>} />
 
           {/* Admin (catch-all splat so inner routes see full /admin/... paths) */}
-          <Route path="/admin/*" element={<Admin />} />
+          <Route path="/admin/*" element={<Chunk><Admin /></Chunk>} />
 
           {/* Client Portal */}
-          <Route path="/portal" element={<PortalLayout><PortalLogin /></PortalLayout>} />
-          <Route path="/portal/dashboard" element={<PortalLayout><Portal /></PortalLayout>} />
+          <Route path="/portal" element={<Chunk><PortalLayout><PortalLogin /></PortalLayout></Chunk>} />
+          <Route path="/portal/dashboard" element={<Chunk><PortalLayout><Portal /></PortalLayout></Chunk>} />
 
           <Route path="*" element={<Layout><PageTransition><NotFound /></PageTransition></Layout>} />
           </Routes>
