@@ -2,19 +2,10 @@
   "version": "7",
   "dialect": "postgresql",
   "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1791216185733,
-      "tag": "0000_bouncy_warbound",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1791460277117,
-      "tag": "0001_tearful_millenium_guard",
-      "breakpoints": true
-    }
+    { "idx": 0, "version": "7", "when": 1791216185733, "tag": "0000_bouncy_warbound", "breakpoints": true },
+    { "idx": 1, "version": "7", "when": 1791460277117, "tag": "0001_tearful_millenium_guard", "breakpoints": true },
+    { "idx": 2, "version": "7", "when": 1791500000000, "tag": "0002_foreign_keys_manual", "breakpoints": true },
+    { "idx": 3, "version": "7", "when": 1791510000000, "tag": "0003_phase2_cms_crm", "breakpoints": true },
+    { "idx": 4, "version": "7", "when": 1791600000000, "tag": "0004_phase4_operations", "breakpoints": true }
   ]
 }
