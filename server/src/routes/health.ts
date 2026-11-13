@@ -53,7 +53,7 @@ app.get('/ai-ping', async (c) => {
     );
     return c.json({ ok: true, latency_ms: Date.now() - start, reply: (res?.content || '').slice(0, 200), model: res?.model, usedFallback: res?.usedFallback });
   } catch (e: any) {
-    return c.json({ ok: false, error: String(e?.message || e).slice(0, 800), name: e?.name, stack: String(e?.stack||'').slice(0,1200), cause: String(e?.cause||'') }, 500);
+    return c.json({ ok: false, error: String(e?.message || e).slice(0, 800) }, 500);
   }
 });
 
