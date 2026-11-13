@@ -1,0 +1,132 @@
+name: Deploy Staging Worker
+
+on:
+  push:
+    branches: [arena/01a09826-toluenetech]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Create dev R2 bucket (idempotent)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: npx wrangler r2 bucket create toluenetech-assets-dev --config server/wrangler.toml || true
+
+      - name: Set DATABASE_URL secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: printf '%s' "${{ secrets.DATABASE_URL }}" | npx wrangler secret put DATABASE_URL --config server/wrangler.toml --env staging
+
+      - name: Set AI_PROVIDER secret (default tokenharbor)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+          VAL: ${{ secrets.AI_PROVIDER }}
+        run: |
+          P="${VAL:-tokenharbor}"
+          printf '%s' "$P" | npx wrangler secret put AI_PROVIDER --config server/wrangler.toml --env staging
+
+      # Per-provider API keys. Both can be set at the same time — the runtime
+      # picks the right key based on the model ID selected per surface.
+      - name: Set AI_TOKENHARBOR_KEY secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: |
+          if [ -n "${{ secrets.AI_TOKENHARBOR_KEY }}" ]; then
+            printf '%s' "${{ secrets.AI_TOKENHARBOR_KEY }}" | npx wrangler secret put AI_TOKENHARBOR_KEY --config server/wrangler.toml --env staging
+          elif [ -n "${{ secrets.AI_API_KEY }}" ]; then
+            # Fall back to legacy AI_API_KEY (users who put the Token Harbor key there).
+            printf '%s' "${{ secrets.AI_API_KEY }}" | npx wrangler secret put AI_TOKENHARBOR_KEY --config server/wrangler.toml --env staging
+          fi
+
+      - name: Set AI_DAHL_KEY secret
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: |
+          if [ -n "${{ secrets.AI_DAHL_KEY }}" ]; then
+            printf '%s' "${{ secrets.AI_DAHL_KEY }}" | npx wrangler secret put AI_DAHL_KEY --config server/wrangler.toml --env staging
+          fi
+
+      # Legacy: still write AI_API_KEY as a fallback if present.
+      - name: Set legacy AI_API_KEY secret (fallback)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: |
+          if [ -n "${{ secrets.AI_API_KEY }}" ]; then
+            printf '%s' "${{ secrets.AI_API_KEY }}" | npx wrangler secret put AI_API_KEY --config server/wrangler.toml --env staging || true
+          fi
+
+      - name: Set JWT_SECRET secret (strong random fallback)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: |
+          SECRET="${{ secrets.JWT_SECRET }}"
+          if [ -z "$SECRET" ]; then SECRET=$(openssl rand -hex 32); fi
+          printf '%s' "$SECRET" | npx wrangler secret put JWT_SECRET --config server/wrangler.toml --env staging
+
+      - name: Set ADMIN_PASSWORD secret (fallback toluene2026-staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: |
+          PW="${{ secrets.ADMIN_PASSWORD }}"
+          if [ -z "$PW" ]; then PW='toluene2026-staging'; fi
+          printf '%s' "$PW" | npx wrangler secret put ADMIN_PASSWORD --config server/wrangler.toml --env staging
+
+      - name: Set optional AI model overrides
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+          M_AI_MODEL: ${{ secrets.AI_MODEL }}
+          M_AI_MODEL_PUBLIC: ${{ secrets.AI_MODEL_PUBLIC }}
+          M_AI_MODEL_REASONING: ${{ secrets.AI_MODEL_REASONING }}
+          M_AI_MODEL_FALLBACK: ${{ secrets.AI_MODEL_FALLBACK }}
+          M_AI_MODEL_CLIENT: ${{ secrets.AI_MODEL_CLIENT }}
+          M_AI_MODEL_PLANNER: ${{ secrets.AI_MODEL_PLANNER }}
+          M_AI_MODEL_ADVISOR: ${{ secrets.AI_MODEL_ADVISOR }}
+          M_AI_MODEL_IDEA: ${{ secrets.AI_MODEL_IDEA }}
+          M_AI_MODEL_FALLBACK_PUBLIC: ${{ secrets.AI_MODEL_FALLBACK_PUBLIC }}
+          M_AI_MODEL_FALLBACK_ADMIN: ${{ secrets.AI_MODEL_FALLBACK_ADMIN }}
+          M_AI_MODEL_FALLBACK_CLIENT: ${{ secrets.AI_MODEL_FALLBACK_CLIENT }}
+          M_AI_MODEL_FALLBACK_PLANNER: ${{ secrets.AI_MODEL_FALLBACK_PLANNER }}
+          M_AI_MODEL_FALLBACK_ADVISOR: ${{ secrets.AI_MODEL_FALLBACK_ADVISOR }}
+          M_AI_MODEL_FALLBACK_IDEA: ${{ secrets.AI_MODEL_FALLBACK_IDEA }}
+        run: |
+          for VAR in AI_MODEL AI_MODEL_PUBLIC AI_MODEL_REASONING AI_MODEL_FALLBACK AI_MODEL_CLIENT AI_MODEL_PLANNER AI_MODEL_ADVISOR AI_MODEL_IDEA AI_MODEL_FALLBACK_PUBLIC AI_MODEL_FALLBACK_ADMIN AI_MODEL_FALLBACK_CLIENT AI_MODEL_FALLBACK_PLANNER AI_MODEL_FALLBACK_ADVISOR AI_MODEL_FALLBACK_IDEA; do
+            VAL="$(printenv "M_$VAR")"
+            if [ -n "$VAL" ]; then printf '%s' "$VAL" | npx wrangler secret put "$VAR" --config server/wrangler.toml --env staging; fi
+          done
+
+      - name: Ensure dev R2 bucket exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: npx wrangler r2 bucket create toluenetech-assets-dev --config server/wrangler.toml || true
+
+      - name: Deploy to staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "5ba6343e7dbce7708785cffe6d9e55ae"
+        run: npx wrangler deploy server/src/index.ts --config server/wrangler.toml --env staging
