@@ -49,7 +49,7 @@ app.get('/ai-ping', async (c) => {
     const res = await ai.run(
       { model: 'deepseek-v4.1-flash:free', messages: [{ role: 'user', content: 'Reply with the single word: pong' }], maxTokens: 20, tier: 'fast', timeoutMs: 15_000 } as any,
       {},
-      { kind: 'healthz' } as any,
+      { kind: 'public' } as any,
     );
     return c.json({ ok: true, latency_ms: Date.now() - start, reply: (res?.content || '').slice(0, 200), model: res?.model, usedFallback: res?.usedFallback });
   } catch (e: any) {
