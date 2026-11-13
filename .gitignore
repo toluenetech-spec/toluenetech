@@ -1,1 +1,14 @@
+*.log
+.DS_Store
+.env.local
+.vite/
+dist/
+<<<<<<< HEAD
+=======
 node_modules/
+server/.dev.vars
+dist/
+>>>>>>> 48a99c9 (Fix blank-screen crash: remove CDN importmap + Tailwind CDN; bundle all deps via Vite + Tailwind v4 plugin)
+node_modules/
+server/.dev.vars
+dist/
