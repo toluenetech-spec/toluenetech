@@ -1,0 +1,6 @@
+node_modules
+.wrangler
+.dev.vars
+.drizzle
+.env
+server/drizzle/meta/_journal.json

@@ -1,0 +1,42 @@
+# Cloudflare Workers config for Toluene Tech API
+#
+# Only SECRETS are set via GitHub Actions secrets / wrangler secret put:
+#   DATABASE_URL       — Neon postgres://... (contains password)
+#   AI_PROVIDER        — 'dahl' (or openai|anthropic|gemini)
+#   AI_API_KEY         — Dahl API key
+#   AI_MODEL           — override standard/reasoning model (default: MiniMaxAI/MiniMax-M2.7)
+#   AI_MODEL_PUBLIC    — override fast/public model (default: deepseek-ai/DeepSeek-V4-Flash-0731)
+#   AI_MODEL_REASONING — override reasoning model (falls back to AI_MODEL then MiniMax)
+#   AI_MODEL_FALLBACK  — override fallback (default: zai-org/GLM-5.3-Flash)
+#   ADMIN_PASSWORD     — overrides the legacy hardcoded admin password
+name = "toluene-tech-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-21"
+compatibility_flags = ["nodejs_compat"]
+account_id = "5ba6343e7dbce7708785cffe6d9e55ae"
+
+[[r2_buckets]]
+binding = "ASSETS"
+bucket_name = "toluenetech-assets"
+preview_bucket_name = "toluenetech-assets-dev"
+
+[vars]
+ENVIRONMENT = "production"
+R2_PUBLIC_URL = "https://pub-3ba2d6d48fc941ae93a9328a913b8b85.r2.dev"
+CORS_ORIGIN = "http://localhost:5173,https://curious-sprinkles-59674e.netlify.app,https://toluenetech.com,https://www.toluenetech.com,https://toluenetech.name.ng,https://www.toluenetech.name.ng,https://*.netlify.app,https://*.pages.dev"
+ASSISTANT_SECRET = "00d40a3066b3c508631b9b45cfc580a5cc262358f4213a3df0eb54a7499aa94a"
+
+# ----- Staging environment -----
+[env.staging]
+name = "toluene-tech-api-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"
+R2_PUBLIC_URL = "https://pub-3ba2d6d48fc941ae93a9328a913b8b85.r2.dev"
+CORS_ORIGIN = "http://localhost:5173,https://*.pages.dev,https://*.netlify.app,https://*.vercel.app"
+ASSISTANT_SECRET = "00d40a3066b3c508631b9b45cfc580a5cc262358f4213a3df0eb54a7499aa94a"
+
+[[env.staging.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "toluenetech-assets-dev"
+preview_bucket_name = "toluenetech-assets-dev"

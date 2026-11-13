@@ -1,0 +1,752 @@
+================================================================================
+TOLUENE TECH — ADMIN AREA INVENTORY (read-only audit)
+Generated: 2026-10-07
+Codebase: /home/user/toluenetech (branch arena/01a09826-toluenetech)
+================================================================================
+
+0. DISCOVERY METHODOLOGY
+--------------------------------------------------------------------------------
+Files inspected (read-only):
+  - App.tsx                             (routes, AdminLayout, PortalLayout)
+  - pages/Admin.tsx                     (entire 1105-line SPA admin page)
+  - pages/portal/Login.tsx, Portal.tsx  (client portal that Tolesh admin tools serve)
+  - components/Layout.tsx               (public layout w/ Admin footer link + public Tolesh widget)
+  - components/ToleshWidget.tsx         (floating launcher, used on all three surfaces)
+  - components/ToleshChat.tsx           (full chat UI — public/admin/client)
+  - components/ToleshAvatar.tsx         (TT monogram)
+  - context/AuthContext.tsx             (admin auth, sessionStorage password)
+  - context/ClientAuthContext.tsx       (client auth, demo session)
+  - context/DataContext.tsx             (ALL CRUD for Firebase + Worker lead sync)
+  - lib/api.ts                          (public-facing API client: chat, lead, media)
+  - lib/ai.ts                           (AI Lab client — NOW points to /ai-lab/*)
+  - types.ts                            (Project, Service, Lead, Client, Milestone, …)
+  - constants.ts                        (AI_TECH_SUGGESTIONS chips)
+  - server/src/index.ts                 (Hono route mount table)
+  - server/src/env.ts                   (env binding typings)
+  - server/src/lib/auth.ts              (authAdmin, authClient — JWT + password + demo)
+  - server/src/lib/cors.ts              (CORS middleware)
+  - server/src/lib/rate-limit.ts        (in-memory sliding-window rate limiter)
+  - server/src/lib/r2.ts                (R2 upload validation/helpers)
+  - server/src/routes/health.ts         (healthz — db + ai config probe)
+  - server/src/routes/cms.ts            (public read-only CMS read endpoints)
+  - server/src/routes/leads.ts          (public lead POST → Neon, TT-xxxx)
+  - server/src/routes/media.ts          (R2 media upload + get, NO AUTH)
+  - server/src/routes/assistant.ts      (public Tolesh /assistant/chat, /assistant/session)
+  - server/src/routes/assistant-admin.ts(admin Tolesh /assistant/admin)
+  - server/src/routes/assistant-client.ts(client Tolesh /assistant/client)
+  - server/src/routes/ai-lab.ts         (AI Lab backend /ai-lab/{planner,advisor,idea})
+  - server/src/ai/models.ts             (model catalog: DeepSeek/MiniMax/GLM)
+  - server/src/ai/client.ts             (AI client w/ tier routing, fallback, tool loop, error codes)
+  - server/src/ai/providers/dahl.ts     (Dahl OpenAI-compatible provider w/ tools+stream+AbortSignal)
+  - server/src/ai/agents/system-prompts.ts (public/admin/client/planner/advisor/idea prompts)
+  - server/src/ai/tools/index.ts        (public + admin + client tool handlers)
+  - server/src/retrieval/index.ts       (retrievePublic / basePublicContext / adminSummary)
+  - server/src/db/schema.ts             (22 Drizzle/Neon tables)
+
+
+================================================================================
+1. ENTRY POINTS & ROUTING
+--------------------------------------------------------------------------------
+Frontend routes (HashRouter, App.tsx):
+  /admin                 → <AdminLayout><Admin /></AdminLayout>
+                           AdminLayout renders children + <ToleshWidget mode="admin" />
+                           (i.e. the amber admin copilot floats over the admin page)
+  /portal                → PortalLogin (+ client Tolesh)
+  /portal/dashboard      → Portal (+ client Tolesh)
+  /* (public)            → Layout wraps pages; public <ToleshWidget mode="public" />
+                           is mounted once in Layout.tsx (blue).
+
+Backend mounts (server/src/index.ts):
+  GET  /healthz               → health (DB + AI config probe only; no auth)
+  GET  /cms/services          → public (published services)
+  GET  /cms/services/:slug    → public
+  GET  /cms/projects          → public
+  … (other cms read endpoints; see below)
+  GET  /assistant/session     → public anon-id
+  POST /assistant/chat        → public Tolesh (rate-limit 25/min/IP, no auth)
+  POST /assistant/admin       → admin Tolesh (authAdmin; 30/min/UID+IP)
+  POST /assistant/client      → client Tolesh (authClient; 30/min/UID+IP)
+  POST /ai-lab/planner        → public AI Lab (rate-limit 10/min/IP)
+  POST /ai-lab/advisor        → public AI Lab (same limit)
+  POST /ai-lab/idea           → public AI Lab (same limit)
+  POST /leads                 → public lead submit → Neon (5/min/IP)
+  GET  /media/item/:id        → public
+  POST /media/upload?filename=→ UPLOAD, NO AUTH (known issue — comment: "auth middleware added in later phase")
+  *                            → 404 JSON
+
+
+================================================================================
+2. AUTHENTICATION FLOW (Admin)
+--------------------------------------------------------------------------------
+Frontend context/AuthContext.tsx:
+  - Hardcoded ADMIN_PASSWORD const: 'iloveesther221@@'
+    (NOTE: there is server-side support for ADMIN_PASSWORD env override via
+    server/src/lib/auth.ts, but the frontend context still hardcodes the old one
+    — so the admin UI can ONLY log in with the hardcoded password; the env
+    override only affects API calls that send X-TT-Admin-Password directly.)
+  - Session persistence: sessionStorage key 'tt_admin_session' = password in plaintext.
+  - login(pass): boolean; logout() clears sessionStorage.
+  - role: 'admin' | null.
+  - No Firebase Auth is wired in (useAuth() is password-only; Firebase is imported
+    but only attempted from ToleshChat for Bearer token, and currentUser will be null
+    because no login page calls signInWithEmailAndPassword / signInWithPopup).
+
+Login screen (pages/Admin.tsx):
+  - Single password input, "Login" button.
+  - Error modal "Incorrect Password" with Retry button (shown when login() returns false).
+  - Success modal: green checkmark "Welcome Admin / Connecting to Firebase..."
+    uses setTimeout(() => setLoginStatus('idle'), 1500) inside JSX (side effect in render — bug).
+  - Post-login: renders full Control Center.
+
+Server auth (server/src/lib/auth.ts):
+  authAdmin(req, env):
+    1) Bearer JWT: decodes payload; checks exp, aud, iss, sub; looks up uid in admin_users.
+       NOTE: signature is NOT verified (JWT is accepted structurally; comment says
+       full RSA-SHA256 verification is future work).
+    2) X-TT-Admin-Password header: compared to env.ADMIN_PASSWORD || 'iloveesther221@@'.
+    3) Otherwise throws.
+  authClient(req, env):
+    1) Bearer JWT (same caveat) → looks up userId in clients.
+    2) X-TT-Client-Email + X-TT-Client-Code → demo@toluenetech.com / DEMO-2026
+       → returns {uid:'client-demo', clientId:'client-demo', …}.
+    3) X-TT-Client-Demo: 1 → same demo identity.
+
+How ToleshChat authenticates as admin (components/ToleshChat.tsx):
+  - Reads sessionStorage.getItem('tt_admin_session') and sends it as X-TT-Admin-Password.
+  - Also tries firebase.auth.currentUser.getIdToken() for Bearer (no-op since not logged in).
+  - So the admin copilot authenticates using the SAME hardcoded password the user
+    typed to enter /admin — stored in plaintext in sessionStorage.
+
+
+================================================================================
+3. ADMIN PAGE STRUCTURE (pages/Admin.tsx, 1105 lines)
+--------------------------------------------------------------------------------
+The entire admin is a single React component "Admin" in one file, with two small
+locally-defined sub-components (OverviewCard, LeadsPanel, QuickRow).
+
+After login, the UI is:
+
+(a) Top bar
+    - H1 "Control Center"
+    - Green pill: <Cloud/> "Online"
+    - Logout button (red, LogOut icon)
+
+(b) Toast system
+    - {uploadSuccess.show} → fixed centered modal, green checkmark, shows message
+      string ("Project Updated!", "Founder's Note Saved!", "Uploading...", etc.).
+    - Auto-dismisses after 2000 ms via setTimeout.
+    - Used by EVERY save handler (projects, note, notification, socials, assets, founder).
+
+(c) Tab navigation (activeAdminTab state, 6 tabs)
+    Tabs: overview | projects | leads | content | settings | portal
+    Rendered as a horizontal button row with bottom border (blue underline for active).
+    The 'content' and 'portal' tabs currently show placeholder cards (see §4).
+    The 'settings' tab doesn't exist as a discrete block — the settings controls
+    (social, notification, brand assets, founder note, project CRUD) render
+    OUTSIDE the tab conditional and are ALWAYS VISIBLE regardless of active tab.
+    This is a layout bug: clicking any tab still shows every setting panel below.
+
+(d) Overview tab (activeAdminTab === 'overview')
+    3-up stat cards (OverviewCard):
+      - Projects      : projects.length          ; sub: "{n} published"
+      - New Leads     : leads.filter(l=>l.status==='new').length ; sub: "{n} total"
+      - Media Assets  : mediaLibrary.length      ; sub: "Files in library"
+    Source of numbers: useData() context (Firestore, not Neon). The worker-side
+    admin_summary endpoint exists but is NOT used by this UI.
+
+(e) Leads tab (activeAdminTab === 'leads')  → LeadsPanel sub-component
+    - Filter pills: All / new / contacted / qualified / discovery / proposal /
+      negotiation / won / lost, each with count.
+    - Lead list (sorted by createdAt desc):
+        Each row is a collapsible accordion showing:
+          - Name, TT reference (mono), status pill, source pill, email, phone,
+            company, date.
+        Expanded shows:
+          - Project (services array)
+          - Budget (if present)
+          - Timeline (if present)
+          - Requirements
+          - Features (lead.features)
+          - AI details (lead.aiDetails, key:value)
+          - Notes
+          - Status-change buttons (all 8 statuses)
+          - "Add note" button → expands textarea with Save/Cancel
+          - mailto: email link (blue)
+          - WhatsApp deep link (green, constructs wa.me/<phone digits>)
+          - Delete button (confirm(), calls onDelete)
+    - Empty state: "No leads yet. New submissions from Start a Project and the
+      AI Estimator will appear here."
+    - Data source: DataContext.leads (Firestore); the Worker Neon leads table is
+      written to as a fire-and-forget side effect in addLead() but the admin UI
+      does NOT read from it. So leads created by the backend create_lead tool
+      (Tolesh) are NOT visible in this panel unless they were also in Firestore.
+      This is a data-source split bug.
+
+(f) Portal tab (activeAdminTab === 'portal')
+    Placeholder card only:
+      - Title: "Client Portal"
+      - Text: clients log in at /portal; "Create clients, projects, milestones,
+        files and messages from the Client Portal manager."
+      - 2 description tiles ("Clients", "Projects & Milestones") — text only.
+      - Footer smallprint: "Full CMS for clients, projects, milestones, files
+        and messages is rolling out in the next wave."
+    NO actual CRUD UI for clients/projects/milestones/files/messages exists in
+    Admin.tsx, despite DataContext exposing addClient/addClientProject/
+    addMilestone/addFile/addMessage/updateClient/etc.
+
+(g) Content tab (activeAdminTab === 'content')
+    Placeholder card only:
+      - Title: "Content"
+      - Text: "Services, portfolio, testimonials, FAQs, products, lab items and
+        insights are managed here. Portfolio management is below in the Projects panel."
+    No actual services/testimonials/FAQs/products/labs/insights editors exist
+    in Admin.tsx, despite DataContext exposing full CRUD for all of them.
+
+(h) The following panels render UNCONDITIONALLY (i.e. on EVERY tab):
+
+    (h1) Social Media & Contact Info panel
+         - Grid of inputs: Company Email, WhatsApp Number, LinkedIn, Facebook,
+           Twitter (X), Instagram URLs.
+         - "Save Links" button (calls updateSocialLinks → Firestore settings/global).
+
+    (h2) Website Notification Ad panel (left brand-colour accent border)
+         - Inputs: Notification Message, Link URL, Link Text.
+         - Custom toggle switch (div-based, with hidden checkbox):
+             "Ad is Active" / "Ad is Disabled".
+         - "Save Ad Settings" button.
+         - Writes to siteNotification in Firestore settings/global.
+
+    (h3) Brand Assets & Downloads panel (4 cards)
+         Each card is a duplicate uploader pattern:
+           - Brand CV (PDF) — PDF upload OR URL input → updateBrandProfile
+           - Portfolio Highlight (PDF) — PDF upload OR URL input → updatePortfolioHighlight
+           - Pricing Guide (PDF) — PDF upload OR URL input → updatePricingGuide
+           - Founder Image (image/*) — image upload OR URL input → updateFounderImage
+         Each card has: "Upload File" label input (styled button), "- OR -" divider,
+         URL text field + Save icon button.
+         Files go to Firebase Storage at docs/... and images/founder... paths.
+         NOTE: there is no use of Worker /media/upload or R2 here; uploads still
+         go to Firebase Storage directly from the browser.
+
+    (h4) Founder Note panel
+         - Inputs: Section Heading, Founder Name, Role/Title, Message Body (textarea).
+         - "Save Note" button.
+         - Writes to settings/global.founderNote.
+
+    (h5) All Projects list (when !isAdding)
+         - Header "All Projects" with "+ Add New" button (top-right).
+         - Loading state: "Loading projects from cloud..."
+         - Table with columns: Title | Category | Status | Featured | Actions.
+           - Title column shows project title.
+           - Category column shows CATEGORY_DISPLAY[label] and an "AI" pill if
+             category is 'AI Integration & Automation'.
+             Shows a legacy-category optgroup in the editor (Product Design→Graphic,
+             Motion & Video→Video Editing).
+           - Status: green "Published" or grey "Draft" pill.
+           - Featured: "⭐ Yes" or "-".
+           - Actions: Edit (pencil, blue), Delete (trash, red, confirm() not used).
+         - Data source: projects from useData() (Firestore projects collection).
+           Projects in the Neon projects table (used by Tolesh/retrieval) are NOT
+           the same objects — another data-source split.
+
+    (h6) Add/Edit Project form (when isAdding)
+         Title + close (X) button.
+         Fields:
+           - Title (text)
+           - Category (select from CATEGORY_ORDER + legacy optgroup)
+           - Short Description (text)
+           - Full Description (textarea)
+           - "Case Study Details" section:
+               - Client Problem (textarea)
+               - Solution (textarea)
+               - Outcome (textarea)
+               - Live Project Link (text)
+               - GitHub URL (text)
+               - Client (text)
+               - Completion Date (text, freeform e.g. "March 2025")
+           - Project Video URL (text + upload button + clear button + <video> preview)
+           - Tools / Technologies (comma-separated text input → split into array)
+           - Tags (comma-separated text input → split into array)
+           - AI Quick-add chips block (only visible when category ===
+             'AI Integration & Automation'): toggle chips from AI_TECH_SUGGESTIONS
+             (constants.ts), with check-mark state.
+           - Project Image section:
+               * Preview thumbnail (80x80 rounded)
+               * URL override input
+               * "Select from Library" button → opens inline media picker
+           - Media library inline picker (shown when showMediaLibrary):
+               * "Upload File" image input
+               * "Add Image URL" text input + Plus button
+               * 4/6-column grid of thumbnails with hover-delete (X)
+               * Click thumbnail → selectImage (sets formData.imageUrl, closes picker)
+               * Empty state: "No images in library. Add one above."
+           - Checkboxes: "Publish Project", "Feature on Home"
+         - Action buttons: Cancel, Save Project (disabled while saving).
+         - Writes to Firestore projects collection via addProject/updateProject.
+         - File uploads go to Firebase Storage via addToLibrary (for media library)
+           or uploadToStorage (for project video at media/... path), NOT to R2/Worker.
+
+(i) Missing from the Admin page (despite DataContext providing them):
+    - Services CRUD (8 services, full schema — no UI)
+    - Solutions CRUD (13 solutions — no UI)
+    - Products CRUD (empty default — no UI)
+    - Lab items CRUD (no UI)
+    - Testimonials CRUD (no UI)
+    - FAQs CRUD (no UI)
+    - Insights/Blog CRUD (no UI)
+    - SiteSettings editor (availability, tagline, hero copy, SEO — no UI)
+    - Client CRUD (no UI; only placeholder tile)
+    - ClientProject CRUD (no UI)
+    - Milestone CRUD (no UI)
+    - Project files CRUD (no UI)
+    - Project messages composer (no UI)
+    - Tools-stack management (DEFAULT_TOOLS, no UI)
+    - Media library browser (only accessible INSIDE the project editor modal,
+      not as a standalone tab)
+    - Any analytics / charts / revenue / conversion stats (only 3 stat cards
+      on overview with simple counts)
+    - Audit log (login events, AI actions, lead status changes — none)
+
+
+================================================================================
+4. ADMIN TOLESH / COPILOT (existing AI functionality)
+--------------------------------------------------------------------------------
+Frontend: <ToleshWidget mode="admin" /> mounted by AdminLayout (amber theme).
+The widget floats bottom-right over the entire /admin page with its own open/close
+button (MessageCircle icon when closed, X when open; the TT avatar is only used
+for mode='public').
+
+UI: ChatGPT-style panel (components/ToleshChat.tsx) — same component as public/
+client, prop-driven colors (amber accent for admin, emerald for client, blue for
+public).
+
+  - Header: "Tolesh AI · Admin" with amber "beta" badge (ShieldCheck icon).
+  - Subtitle: "Summarises CRM & CMS data."
+  - Greeting: "Hi, I'm Tolesh for Admins. I can pull quick stats, draft replies,
+    summarise leads, and help navigate the control centre..."
+  - Composer placeholder: "Ask about leads, projects, content…"
+  - Thinking dots + "Tolesh is thinking…" animation.
+  - Markdown rendering via lib/markdown.tsx (bold/italic/code/links/bullets/
+    headings/blockquotes — safe, no HTML injection).
+  - "Tolesh can make mistakes" disclaimer.
+  - Auth header: X-TT-Admin-Password (from sessionStorage, i.e. the plaintext
+    admin password).
+  - Endpoint: https://toluene-tech-api.toluenetech.workers.dev/assistant/admin
+    (or same-origin in dev, or VITE_API_URL override).
+  - Session persisted to localStorage key tt_admin_sid (anonId).
+
+Backend (server/src/routes/assistant-admin.ts, 117 lines):
+  - Auth: authAdmin (JWT or X-TT-Admin-Password).
+  - Rate limit: 30/min per (uid, ip).
+  - Session: assistantSessions/assistantMessages in Neon; anonId prefixed 'adm_'.
+  - Loads admin name; looks up uid in admin_users unless 'local-admin'.
+  - Context: loads basePublicContext + adminSummary (leads total/new, projects
+    total, 8 latest leads). Summary is tolerant of DB errors (try/catch, logs).
+  - System prompt: ADMIN_SYSTEM_PROMPT (strict READ+ANALYZE default; destructive/
+    send/financial actions require explicit confirmation; drafts never send).
+  - Model: tier='reasoning' → MiniMax-M2.7, maxTurns=6, timeout=40s,
+    maxTokens=1000. Tools = ADMIN_TOOLS (see §5).
+  - Errors: surfaces friendly messages distinguishing TIMEOUT vs other errors;
+    logs structured events; AIConfigError gives a setup message.
+  - Fallback: on model error/timeout/empty → zai-org/GLM-5.3-Flash (tools-capable).
+
+Admin tools available to the copilot (server/src/ai/tools/index.ts):
+  (inherits all PUBLIC tools: search_services, search_projects, search_faqs,
+   get_pricing, list_services)
+  - admin_list_leads({status?, limit})   → newest-first list with status filter
+  - admin_get_lead({ref})                → full lead by TT-xxxx ref
+  - admin_stats()                        → lead/project counts by status
+  - admin_draft_reply({ref, tone, purpose}) → returns lead data + a followUp
+    instruction for the model to write a draft; NEVER sends anything.
+  - admin_search_projects({query})       → search across ALL projects (incl. drafts)
+
+The admin copilot can NOT: update lead status, delete anything, send email/WA,
+create leads, or touch client data. Those are not in the tool set, and the
+system prompt explicitly forbids it.
+
+
+================================================================================
+5. CLIENT TOLESH (referenced for completeness because admin tools mention clients)
+--------------------------------------------------------------------------------
+- Mounted by PortalLayout at /portal and /portal/dashboard; emerald theme.
+- Auth: X-TT-Client-Demo:1 always set; tries to read tt_client_session from
+  localStorage for email+code; tries Firebase Bearer.
+- Backend: /assistant/client — authClient, rate limit 30/min, seeds demo client
+  records into Neon on first use (cp-demo-1 website redesign + 4 milestones +
+  welcome message).
+- Tools: client_projects, client_milestones, client_messages, client_files —
+  every tool does an AND clientId = ctx.auth.clientId check before querying.
+
+
+================================================================================
+6. DATA SOURCES / BACKEND CONNECTIONS
+--------------------------------------------------------------------------------
+The admin UI is currently wired to TWO data layers that are NOT in sync:
+
+(a) Firebase (frontend DataContext.tsx) — THIS IS WHAT THE ADMIN UI READS/WRITES
+    - db imported from ../firebase (Firestore)
+    - storage imported from ../firebase (Storage)
+    - Collections used:
+        projects, services, solutions, products, labs, testimonials, faqs,
+        insights, leads, clients, clientProjects, milestones, files, messages,
+        media, settings/global (single doc)
+    - addLead() also fires-off a POST to /leads on the Worker (lib/api.ts
+      submitLead) to write a parallel record into Neon with a server-generated
+      TT-xxxx ref. If the Worker returns a ref, the Firebase copy's reference
+      field is overwritten. Failure is silently swallowed ("/* ignore */").
+    - All uploads (project images, project video, brand assets, founder image,
+      media library files) → Firebase Storage via uploadBytes / getDownloadURL.
+
+(b) Neon Postgres via Drizzle (backend) — THIS IS WHAT TOLESH/CMS/AI-LAB READ
+    - 22 tables in server/src/db/schema.ts: site_settings, services, projects,
+      products, lab_items, testimonials, faqs, insights, pricing_plans, leads,
+      clients, client_projects, milestones, tasks, project_files, messages,
+      invoices, media, assistant_sessions, assistant_messages, admin_users,
+      notifications.
+    - Endpoints that read/write Neon: /cms/* (read), /leads (POST),
+      /assistant/* (read/write sessions/messages/leads), /ai-lab/* (read via tools),
+      /media/* (read/write media table + R2).
+    - Tolesh's retrieval and tools read from the Neon services/projects/faqs/
+      pricing_plans/testimonials tables. Admin copilot stats read Neon leads.
+    - The admin UI does NOT display any Neon data; changes made in the admin UI
+      (projects, leads) do NOT update Neon, except that new leads from contact
+      forms get dual-written. Edits in the admin UI will NOT appear in Tolesh
+      answers or /cms responses unless separately seeded into Neon.
+
+(c) R2 bucket "toluenetech-assets"
+    - Bound as env.ASSETS in the Worker.
+    - Used by /media/upload and /media/item/:id.
+    - NOT used by Admin UI upload flows (Admin still uses Firebase Storage).
+
+(d) Dahl Inference
+    - AI provider for all three Tolesh surfaces + AI Lab.
+    - Auth: Bearer token in env.AI_API_KEY (secret); AI_PROVIDER='dahl'.
+    - Models: deepseek-ai/DeepSeek-V4-Flash-0731 (fast), MiniMaxAI/MiniMax-M2.7
+      (reasoning), zai-org/GLM-5.3-Flash (fallback).
+    - Kimi removed (retired).
+    - No model keys in the browser.
+
+
+================================================================================
+7. OTHER ADMIN-BACKEND DETAIL
+--------------------------------------------------------------------------------
+- /media/upload is unauthenticated (comment in code acknowledges this).
+- Rate limiter is in-memory per Worker isolate (resets on cold start).
+- CORS is a hand-rolled middleware (server/src/lib/cors.ts) allowing origins
+  listed in CORS_ORIGIN; the wrangler.toml var includes localhost, Netlify,
+  toluenetech.com, toluenetech.name.ng, *.netlify.app, *.pages.dev.
+- Health endpoint (/healthz) does not require auth and exposes db:'ok'|'error'
+  and ai:'ready'|'unconfigured'|'error' to the public internet.
+- Public CMS endpoints (/cms/services, /cms/projects, …) do NOT exist beyond
+  services/services:slug/projects — the cms route file only defines services,
+  services:slug, projects (top of file); all other tables are reachable only
+  through AI tools or not at all. (I did a full read; it's not truncated.)
+
+
+================================================================================
+8. DUPLICATE / REDUNDANT FEATURES
+--------------------------------------------------------------------------------
+- Lead storage is duplicated (Firebase leads collection AND Neon leads table),
+  with write-only sync from Firebase→Neon on addLead(). The admin panel reads
+  Firebase, Tolesh reads Neon; lead status changes made in the admin panel
+  (updateLead) do NOT propagate to Neon, so Tolesh stats become stale.
+- Project storage is duplicated (Firebase projects collection AND Neon projects
+  table). Portfolio UI reads Firebase; Tolesh reads Neon.
+- Media storage is duplicated: brand assets, project images, and founder image
+  still go to Firebase Storage, while /media/upload writes to R2.
+- The password constant 'iloveesther221@@' exists in BOTH context/AuthContext.tsx
+  (frontend) and as DEFAULT_ADMIN_PASSWORD in server/src/lib/auth.ts; the env
+  override only works for direct API calls, not for the UI login.
+- Two separate Markdown/AiReply rendering paths: Markdown component in
+  lib/markdown.tsx is used by ToleshChat AND by the new AILab — good. But any
+  future messaging view would need to remember to use it.
+- Session persistence is duplicated: sessionStorage tt_admin_session for admin,
+  localStorage tt_{mode}_sid for Tolesh per-surface anon ids, localStorage
+  tt_client_session for client auth — three different stores for related state.
+- "Online" green pill in the admin header is hard-coded — it does NOT reflect
+  actual Worker/DB/Firebase health (unlike /healthz which actually probes).
+
+
+================================================================================
+9. UNFINISHED / DEMO / VIBE-CODED SECTIONS
+--------------------------------------------------------------------------------
+- Client Portal tab: placeholder only ("Full CMS ... rolling out in the next wave").
+- Content tab: placeholder only ("Services, portfolio, testimonials, FAQs,
+  products, lab items and insights are managed here" — but there is no UI).
+- Settings tab: has no dedicated content of its own (the social/notification/
+  asset/founder panels always render, even on other tabs).
+- Project category dropdown contains "Legacy (existing projects only)" optgroup
+  mapping old categories to new, indicating incomplete migration.
+- Firebase Auth is wired up in imports and Bearer-token attempts, but there is
+  no Firebase sign-in UI for admin — only the hardcoded password.
+- DEFAULT_CLIENTS/DEFAULT_CLIENT_PROJECTS/DEFAULT_MILESTONES/DEFAULT_FILES/
+  DEFAULT_MESSAGES are hardcoded seed data in DataContext.tsx, served as
+  fallbacks when Firestore is empty. The demo client (cp-demo-1) is seeded on
+  the Neon side too by assistant-client.ts on first request.
+- setTimeout is used INSIDE JSX in the login success modal
+  ({setTimeout(...) && ""}) — React anti-pattern; causes the timeout to be
+  reset on every render.
+- alert() and confirm() are used throughout for error handling / delete
+  confirmation — browser-native dialogs, not custom UI.
+- Logo-reveal/animations not critical, but the upload toast always says
+  "Uploading..." before the upload finishes and shows success before the file
+  is fully processed in handleVideoUpload.
+- Media uploads to Firebase Storage include a user-facing message that says
+  "Check Storage Rules" on failure, which is a dev-facing error message leaking
+  into production UX.
+- AssistantWidget.tsx (components/AssistantWidget.tsx, 221 lines) is dead code —
+  ToleshWidget/ToleshChat are the live widgets, AssistantWidget is unused.
+- The neon-coloured "beta" pill on the copilot header is hardcoded; no way to
+  mark it GA.
+
+
+================================================================================
+10. VISUALLY OUTDATED / INCONSISTENT AREAS
+--------------------------------------------------------------------------------
+- The admin page is the only screen that uses a plain bg-slate-50 layout with
+  default browser form controls, while public pages use the premium tt-glass /
+  GlowButton / glow-border design system. The admin looks like a back-office MVP.
+- Overview stat cards use a flat light-grey style with no hover, no mini-charts,
+  no trend indicator, no quick link.
+- The leads panel status pills use hand-rolled color maps (LEAD_STATUS_STYLES)
+  with ad-hoc shades rather than the design system's accent palette.
+- Tabs use the browser-default bottom-border style rather than the tt-glass /
+  pill system used elsewhere.
+- Save buttons use brand-600 fills; Cancel buttons are plain text — minor, but
+  the primary action doesn't have the GlowButton shadow/glow treatment.
+- Upload tiles in Brand Assets use small shadow-sm and basic borders, unlike
+  the tt-glow aesthetic on public pages.
+- The notification toggle is hand-built (a div sliding a circle) rather than
+  using any shared Switch/Toggle component.
+- Tables use plain divider borders with no sticky header, no pagination, no
+  search/filter beyond status pills, no bulk actions.
+- Modal system is inconsistent: login success, login error, and upload success
+  all have different fixed-centre modals with no shared Modal component.
+- No dark-mode specific tweaks for the admin; dark: classes exist on every
+  element but a few of the upload/URL inputs look unstyled in dark mode.
+
+
+================================================================================
+11. FEATURES THAT SHOULD BE GROUPED TOGETHER
+--------------------------------------------------------------------------------
+- All "settings" concerns (social links, site notification, brand assets,
+  founder note, site settings/availability/SEO) should live under the Settings
+  tab rather than rendering on every tab.
+- All content/CMS editors (services, solutions, projects, testimonials, FAQs,
+  insights, products, labs, pricing plans, tools-stack) should live under the
+  Content tab with a sub-nav, rather than only projects having an editor and
+  everything else being inaccessible.
+- All CRM concerns (leads, clients, client projects, milestones, messages,
+  files, invoices) should live under a CRM/Client Work tab — currently leads
+  are under "leads" tab, and the portal placeholder mentions clients but
+  doesn't manage them.
+- Media Library should be its own tab under Content/Settings — currently only
+  reachable from inside the project image picker.
+- The AI admin copilot (ToleshWidget mode=admin) and any future AI Model Control
+  Center should live under a dedicated "AI" tab rather than being a floating
+  button only. The floating button is fine as a launcher, but there's no
+  persistent in-page entry point showing conversation history, model status, or
+  controls.
+- The "Overview" tab could aggregate quick actions (new lead, add project,
+  upload asset, open Tolesh) rather than just three stat numbers.
+- AI Lab management (reviewing AI Lab usage / prompts? out of scope here, but)
+  should also live under AI if analytics are added.
+
+
+================================================================================
+12. IMPORTANT FUNCTIONALITY WITH NO PROPER PLACE IN THE ADMIN UI
+--------------------------------------------------------------------------------
+- Neon-side content management: services, projects, pricing plans, FAQs,
+  testimonials, insights in Postgres are what Tolesh and /cms and AI Lab read —
+  but the Admin UI only edits Firestore. There is currently no UI at all for
+  seeding/editing the Neon content (it was presumably inserted by migrations or
+  scripts). Tolesh will answer "I don't have that data" until someone seeds it.
+- Assistant/Tolesh conversation history browser (assistant_sessions /
+  assistant_messages in Neon) — no UI to review past chats, see which leads
+  were captured by Tolesh, or read full conversation threads.
+- Lead capture source attribution broken down (Start Project form vs AI
+  Estimator vs Tolesh AI vs direct email) — leads carry a source field but
+  there is no breakdown chart/filter.
+- AI Model Control Center: no UI to see which model is primary/fallback, view
+  token usage / spend, toggle features (fast vs reasoning for public), see
+  error rates, set rate limits, toggle AI Lab features, review drafts.
+- System prompt / guardrail management — prompts are hardcoded in the server
+  source; no UI to edit or A/B test them.
+- Lead reply composer / send-email workflow — admin_draft_reply returns a draft
+  to Tolesh but there is no UI to actually send emails/WA messages, no template
+  library, no sent-messages log.
+- Task management (tasks table in schema) — no UI, despite milestones having a
+  1:many relationship with tasks.
+- Invoice management (invoices table in schema) — no UI, no Stripe/Paystack
+  integration yet.
+- Notifications system (notifications table in schema) — table exists but
+  nothing creates or displays notifications.
+- Admin user management (admin_users table) — no UI to add/remove admins; only
+  the hardcoded local-admin password + any Firebase UIDs inserted directly
+  into the DB can authenticate.
+- Availability toggle (site_settings.availability shows AVAILABLE/LIMITED/
+  UNAVAILABLE on the public site) — no UI control; the site notification is
+  the only banner control.
+- R2 media browser — the media table + R2 bucket exist but the UI only browses
+  Firebase Storage media.
+- Firestore ↔ Neon sync tooling — no way to push Firebase content to Neon or
+  vice versa, which means Tolesh operates on stale/empty data until someone
+  manually seeds Neon.
+- Audit trail — no viewer for AI tool calls, lead updates, login events, or
+  deleted items.
+
+
+================================================================================
+13. EXISTING ADMIN AI / COPILOT FUNCTIONALITY (summary)
+--------------------------------------------------------------------------------
+- Floating chat widget (amber) on every admin page.
+- Greeting tailored to admins.
+- Auth via X-TT-Admin-Password (same as UI login).
+- Session persistence via localStorage anonId.
+- Tools: list/search services/projects/faqs/pricing + admin_list_leads,
+  admin_get_lead, admin_stats, admin_draft_reply (DRAFT ONLY — never sends),
+  admin_search_projects (includes drafts).
+- Guardrails: READ+ANALYZE by default; destructive/send/financial actions are
+  not wired as tools and the system prompt requires explicit confirmation.
+- Tier: reasoning (MiniMax), fallback GLM, timeouts 40s, max 6 tool turns.
+- Errors return friendly messages with per-error-type wording; structured logs
+  on the worker.
+- The assistant is ALREADY functional on /assistant/admin; the Admin page
+  mounts the widget, so any logged-in admin can use it today.
+
+What is MISSING for the admin copilot:
+- No in-page launcher cue beyond the small FAB (no "Open Tolesh" button in the
+  header, no suggested prompts on the overview tab, no quick-action chips).
+- No conversation history browser.
+- No way for the admin to approve a draft reply and actually send it (the
+  draft is text-only in the chat).
+- No UI indicator of which model answered, whether fallback was used, or which
+  tools were called (the response includes these but the frontend doesn't
+  render them).
+- No ability to clear/reset the session from the UI.
+
+
+================================================================================
+14. WHERE A FULL CHATGPT/GEMINI-STYLE ADMIN AI CHAT COULD FIT
+--------------------------------------------------------------------------------
+Natural homes, ordered by suitability:
+
+(a) BEST: Persistent, docked RIGHT SIDEBAR / DRAWER on the entire admin page,
+    replacing the current floating bubble for admins. The FAB can remain as the
+    opener, but the panel should:
+      - Be wider (min 32rem / 40vw).
+      - Support multiple concurrent conversations (like ChatGPT sidebar).
+      - Persist conversation history scoped to the admin user (read from
+        assistant_sessions in Neon, not localStorage; currently anonymous adm_*
+        sessions).
+      - Have a "suggested prompts" section visible on empty state:
+        "Summarise new leads this week", "Draft a reply to TT-0042",
+        "Show me all high-intent leads", "What's our most common question?",
+        tied to overview actions.
+      - Render tool-call badges (e.g. "✓ Searched services", "✓ Listed 12 leads")
+        inline while it's working.
+      - Include "Approve & send reply" CTA next to drafts (requires adding a
+        send-email/WA tool with a confirmation flow).
+    The current ToleshChat.tsx is already 80% of this UI — adding a sidebar
+    layout mode (mode='admin-docked') would be minimal work.
+
+(b) A dedicated "AI" top-level tab (between leads and content) containing:
+      - The copilot as the main panel
+      - A right rail showing recent tool calls / citations
+      - Quick-action cards (summarise leads, draft follow-up, analyse sentiment)
+      - A link/tab to the AI Model Control Center
+    This is better for discoverability than a floating button alone.
+
+(c) A button on the Overview tab ("Ask Tolesh") that opens the chat with
+    context pre-filled (e.g. with current stats).
+
+The floating FAB should remain as a quick-launch shortcut regardless.
+
+
+================================================================================
+15. WHERE AN AI MODEL CONTROL CENTER COULD FIT
+--------------------------------------------------------------------------------
+Recommend a new top-level tab "AI" (or nested under a future "Settings" subnav)
+with its own sub-sections. It would be the natural place for:
+
+  - Model status cards for public / reasoning / fallback with green/red/
+    degraded indicators (pulled from /healthz and maybe a new /ai/status endpoint
+    that probes each model live).
+  - Primary/fallback model selectors (populated from GET /v1/models on Dahl,
+    i.e. live IDs) — writes AI_MODEL / AI_MODEL_PUBLIC / AI_MODEL_REASONING /
+    AI_MODEL_FALLBACK as Worker secrets (via a CF API call from the server,
+    never from the browser).
+  - Token usage / cost chart (if you add usage logging).
+  - Tool toggles (enable/disable create_lead, admin_draft_reply, etc.).
+  - Guardrail / system prompt editor for each surface (requires storing prompts
+    in a DB or KV rather than hardcoding them).
+  - Rate-limit viewer / IP blocklist (currently in-memory; would need Workers KV).
+  - AI Lab usage stats (calls per endpoint, error rates, avg latency).
+  - Conversation browser / audit log of admin copilot drafts, public leads
+    captured, client conversations.
+  - Test console where an admin can try a prompt against each model to verify.
+  - Knowledge-base ingestion status (how many services/projects/FAQs/pricing
+    plans are indexed in Neon for retrieval).
+
+It should NOT live inside the floating chat widget — that is a consumer surface.
+
+
+================================================================================
+16. SECURITY / AUTH OBSERVATIONS (non-exhaustive, observed during audit)
+--------------------------------------------------------------------------------
+- Admin password is hardcoded in frontend JS and stored in plaintext in
+  sessionStorage; env ADMIN_PASSWORD override is bypassed by the frontend login.
+- /media/upload has NO authentication.
+- JWT signature verification is not performed (structural + DB membership only).
+- CORS_ORIGIN includes wildcard patterns ( *.netlify.app, *.pages.dev) that are
+  string-matched, not wildcard-aware in the current cors.ts — verify this works
+  for deploy previews.
+- The ASSISTANT_SECRET env var is exposed in wrangler.toml vars (i.e. NOT a
+  secret) — it is no longer used by the new assistant routes (they use the
+  auth middleware instead) but it still ships to the client as a binding.
+- No CSRF protection on POST endpoints (relies on CORS allowlist + SameSite).
+- Lead creation on /leads is rate-limited but email validation is basic regex;
+  no captcha / turnstile — could be hit by bots.
+
+
+================================================================================
+17. BACKEND API QUICK REFERENCE (admin-relevant)
+--------------------------------------------------------------------------------
+GET    /healthz                                          → {ok,db,ai,version,time}
+GET    /cms/services                                     → {items:Service[]}
+GET    /cms/services/:slug                               → {item:Service}
+GET    /cms/projects                                     → {items:Project[]}
+POST   /leads                                            → {ok,ref} (public lead)
+GET    /media/item/:id                                   → {item:Media}
+POST   /media/upload?filename=…                          → (multipart, NO AUTH)
+GET    /assistant/session                                → {anonId}
+POST   /assistant/chat                                   → {reply,anonId,model,usedFallback,error,toolCalls}
+POST   /assistant/admin    (X-TT-Admin-Password or Bearer) → {reply,anonId,model,usedFallback,error,toolCalls}
+POST   /assistant/client   (demo or JWT or email+code)    → {reply,anonId,model,usedFallback,error,toolCalls}
+POST   /ai-lab/planner       (structured or brief)       → {reply,model,usedFallback,toolCalls}
+POST   /ai-lab/advisor       ({question})                → {reply,...}
+POST   /ai-lab/idea          ({idea})                    → {reply,...}
+
+
+================================================================================
+18. SUMMARY CHECKLIST
+--------------------------------------------------------------------------------
+Routes mounted:                    11 mount groups in server/src/index.ts
+Admin frontend page:               SINGLE 1105-line file (pages/Admin.tsx)
+Tabs defined:                      6 (overview/projects/leads/content/settings/portal)
+Tabs with real functionality:      3 (overview, projects, leads)
+Tabs that are placeholders:        2 (content, portal)
+Tab without its own content:       1 (settings — controls render globally)
+Always-visible panels on all tabs: socials, notification ad, brand assets,
+                                   founder note, project list, project form
+Data CRUD exposed in context:     17 entities (projects/services/solutions/products/labs/testimonials/faqs/insights/leads/clients/clientProjects/milestones/files/messages/media/settings/siteSettings/tools)
+CRUD UIs actually built:           1 (projects) + partial (leads: status/notes/delete, no add)
+Backend admin AI tools:            10 (5 public read + 5 admin read-only)
+Backend tables in Neon:            22
+Firebase collections used:         14
+Storage backends:                  Firebase Storage (UI uploads) + R2 (media API)
+AI providers:                      Dahl only (DeepSeek/MiniMax/GLM)
+Client surfaces with Tolesh:       3 (public/admin/client) + AI Lab
+Dead/unused files:                 components/AssistantWidget.tsx (221 lines)
+
+================================================================================

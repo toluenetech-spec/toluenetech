@@ -1,0 +1,6 @@
+{
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/((?!assets/|cms/|leads/|media/|files/|assistant/|ai-lab/|auth/|client/|admin/|healthz/).*)", "destination": "/index.html" }
+  ]
+}
