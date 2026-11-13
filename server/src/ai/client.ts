@@ -6,6 +6,7 @@ import { createGeminiProvider } from './providers/gemini';
 import { createTokenHarborProvider } from './providers/tokenharbor';
 import { fallbackChain, getModelConfig, normaliseModelId, pickModel, type TaskTier } from './models';
 import { stripThinking } from './strip-thinking';
+import { extractXmlToolCalls } from './parse-tool-calls';
 import type { Env } from '../env';
 import { getDb } from '../db';
 type DB = ReturnType<typeof getDb>;
@@ -258,7 +259,13 @@ export function getAI(env: Env) {
       }
       clearTimeout(timer);
 
-      const cleaned = stripThinking(out.content || '');
+      // Models on the free tier sometimes emit <toolcall> XML instead of
+      // populating tool_calls JSON. Parse those blocks out before we continue.
+      const xmlParsed = extractXmlToolCalls(out.content || '');
+      if (xmlParsed.toolCalls.length) {
+        out.toolCalls = [...(out.toolCalls || []), ...xmlParsed.toolCalls];
+      }
+      const cleaned = stripThinking(xmlParsed.visibleContent || '');
       if (!out.toolCalls.length) {
         if (!cleaned) {
           throw new AIError({ code: 'EMPTY_MODEL_RESPONSE', message: 'The model returned an empty response.', model: usedModel });
@@ -268,9 +275,18 @@ export function getAI(env: Env) {
 
       messages.push({ role: 'assistant', content: cleaned });
 
+      // Some free-tier models emit function names in camelCase
+      // (adminListLeads) while our tool map uses snake_case
+      // (admin_list_leads). Normalize before lookup.
+      const CAMEL_TO_SNAKE = (n: string) => n.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
       for (const tc of out.toolCalls) {
         const t0 = Date.now();
-        const name = tc.function?.name ?? '';
+        let name = tc.function?.name ?? '';
+        // Accept either form.
+        if (!toolsByName[name] && !toolHandlers[name]) {
+          const snake = CAMEL_TO_SNAKE(name);
+          if (toolsByName[snake] || toolHandlers[snake]) name = snake;
+        }
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(tc.function?.arguments || '{}');
