@@ -211,7 +211,6 @@ export function getAI(env: Env) {
       message: userFacingMessage(lastErr),
     };
     log(label, { event: 'all_models_failed', chain, code: err.code, cause: err.cause ?? err.message });
-    err.message = err.message + ' | models=' + chain.join(',') + ' | last=' + JSON.stringify(lastErr ? {code:lastErr.code,cause:String(lastErr.cause||lastErr.message||"").slice(0,300),model:lastErr.model,http:lastErr.httpStatus} : null);
     throw new AIError(err);
   }
 
